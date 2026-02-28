@@ -333,7 +333,7 @@ function OverlayApp({ state, pos }: { state: OverlayState; pos: OverlayPosition 
           </svg>
         </div>
         <span style={{ fontWeight: 700, fontSize: 13, letterSpacing: '-0.01em' }}>
-          Reel<span style={{ color: c.accent }}>Check</span>
+          Reeli<span style={{ color: c.accent }}>able</span>
         </span>
         {'creator' in state && state.creator && (
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
