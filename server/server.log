@@ -28,3 +28,711 @@
 ── done ──
 
 {"level":30,"time":1772276885910,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-1","res":{"statusCode":200},"responseTime":15252.11289998889,"msg":"request completed"}
+{"level":30,"time":1772277000536,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-2","req":{"method":"POST","url":"/v1/analyze-reel","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":60499},"msg":"incoming request"}
+
+→ POST /v1/analyze-reel  reelId=DQ8FoYkCT-c  videoUrl=https://www.instagram.com/reels/DQ8FoYkCT-c/...
+
+── analyzeReel: DQ8FoYkCT-c ──
+   videoUrl: https://www.instagram.com/reels/DQ8FoYkCT-c/...
+   yt-dlp downloading: https://www.instagram.com/reels/DQ8FoYkCT-c/
+{"level":30,"time":1772277001029,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-3","req":{"method":"POST","url":"/v1/analyze-reel","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":57773},"msg":"incoming request"}
+
+→ POST /v1/analyze-reel  reelId=DQ15e_3kWqT  videoUrl=https://www.instagram.com/reels/DQ15e_3kWqT/...
+
+── analyzeReel: DQ15e_3kWqT ──
+   videoUrl: https://www.instagram.com/reels/DQ15e_3kWqT/...
+   yt-dlp downloading: https://www.instagram.com/reels/DQ15e_3kWqT/
+{"level":30,"time":1772277003899,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-4","req":{"method":"POST","url":"/v1/analyze-reel","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":49194},"msg":"incoming request"}
+
+→ POST /v1/analyze-reel  reelId=DUN3BwIjQbs  videoUrl=https://www.instagram.com/reels/DUN3BwIjQbs/...
+
+── analyzeReel: DUN3BwIjQbs ──
+   videoUrl: https://www.instagram.com/reels/DUN3BwIjQbs/...
+
+→ POST /v1/analyze-reel  reelId=DOxAqS-j_VR  videoUrl=https://www.instagram.com/reels/DOxAqS-j_VR/...
+
+── analyzeReel: DOxAqS-j_VR ──
+   videoUrl: https://www.instagram.com/reels/DOxAqS-j_VR/...
+
+→ POST /v1/analyze-reel  reelId=DVJtqX9DIWq  videoUrl=https://www.instagram.com/reels/DVJtqX9DIWq/...
+
+── analyzeReel: DVJtqX9DIWq ──
+   videoUrl: https://www.instagram.com/reels/DVJtqX9DIWq/...
+
+→ POST /v1/analyze-reel  reelId=DRBl2q2Dr8O  videoUrl=https://www.instagram.com/reels/DRBl2q2Dr8O/...
+
+── analyzeReel: DRBl2q2Dr8O ──
+   videoUrl: https://www.instagram.com/reels/DRBl2q2Dr8O/...
+{"level":30,"time":1772277003900,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-5","req":{"method":"POST","url":"/v1/analyze-reel","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":60333},"msg":"incoming request"}
+{"level":30,"time":1772277003900,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-6","req":{"method":"POST","url":"/v1/analyze-reel","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":52469},"msg":"incoming request"}
+{"level":30,"time":1772277003901,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-7","req":{"method":"POST","url":"/v1/analyze-reel","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":61156},"msg":"incoming request"}
+   yt-dlp downloading: https://www.instagram.com/reels/DUN3BwIjQbs/
+   yt-dlp downloading: https://www.instagram.com/reels/DOxAqS-j_VR/
+   yt-dlp downloading: https://www.instagram.com/reels/DVJtqX9DIWq/
+   yt-dlp downloading: https://www.instagram.com/reels/DRBl2q2Dr8O/
+   frames extracted: 4
+   frames extracted: 4
+   frames extracted: 5
+   frames extracted: 5
+   frames extracted: 4
+   frames extracted: 4
+
+── VLM raw response ──
+{
+  "transcript": [
+    {
+      "text": "How many times have you been rejected from an Inter*ship? Me:",
+      "timestampMs": 0
+    }
+  ],
+  "claims": [],
+  "discrepancies": [
+    {
+      "description": "Visual context (courtroom setting) does not align with the text's topic (internship rejections)",
+      "frameTimestampMs": 0,
+      "severity": "medium"
+    }
+  ]
+}
+──────────────────────
+
+   transcript lines: 1
+   claims: 0
+   discrepancies: 1
+── done ──
+
+{"level":30,"time":1772277015496,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-6","res":{"statusCode":200},"responseTime":11595.486200004816,"msg":"request completed"}
+
+── VLM raw response ──
+{
+  "transcript": [
+    {
+      "text": "Engineers after studying for three months only to score 31/100 on their exam",
+      "timestampMs": 0
+    },
+    {
+      "text": "(it was the highest score in class)",
+      "timestampMs": 0
+    }
+  ],
+  "claims": [
+    {
+      "id": "claim1",
+      "text": "Engineers studied for three months",
+      "reasoning": "The text states 'after studying for three months', indicating a specific duration of study as a factual detail in the meme.",
+      "authorSources": [],
+      "timestampMs": 0
+    },
+    {
+      "id": "claim2",
+      "text": "Engineers scored 31/100 on their exam",
+      "reasoning": "The text explicitly states the exam score as 31/100, presenting a numerical outcome of the study period.",
+      "authorSources": [],
+      "timestampMs": 0
+    },
+    {
+      "id": "claim3",
+      "text": "The score was the highest in the class",
+      "reasoning": "The parenthetical note clarifies that despite the low score, it was the highest among cla
+──────────────────────
+
+   transcript lines: 2
+   claims: 3
+   discrepancies: 1
+── done ──
+
+{"level":30,"time":1772277020006,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-3","res":{"statusCode":200},"responseTime":18974.972099989653,"msg":"request completed"}
+
+── VLM raw response ──
+{
+  "transcript": [
+    {
+      "text": "When I look at bro’s code and it has a bunch of comments without spelling mistakes:",
+      "timestampMs": 0
+    },
+    {
+      "text": "(I know what you did bro, you aren’t fooling anyone)",
+      "timestampMs": 0
+    }
+  ],
+  "claims": [],
+  "discrepancies": []
+}
+──────────────────────
+
+   transcript lines: 2
+   claims: 0
+   discrepancies: 0
+── done ──
+
+{"level":30,"time":1772277021316,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-5","res":{"statusCode":200},"responseTime":17415.95560002327,"msg":"request completed"}
+
+── VLM raw response ──
+{
+  "transcript": [
+    {
+      "text": "How C++ mfs look at you when their 6000 line program runs 0.000438 seconds faster than your 4-line Python script:",
+      "timestampMs": 0
+    }
+  ],
+  "claims": [
+    {
+      "id": "claim1",
+      "text": "C++ programs have 6000 lines",
+      "reasoning": "The text explicitly states '6000 line program', which is a specific claim about the size of C++ code.",
+      "authorSources": [],
+      "timestampMs": 0
+    },
+    {
+      "id": "claim2",
+      "text": "Python scripts have 4 lines",
+      "reasoning": "The text states '4-line Python script', a specific claim about the size of Python code.",
+      "authorSources": [],
+      "timestampMs": 0
+    },
+    {
+      "id": "claim3",
+      "text": "C++ programs run 0.000438 seconds faster than Python scripts",
+      "reasoning": "The text states the performance difference as 0.000438 seconds, which is a specific numerical claim.",
+      "authorSources": [],
+      "timestampMs": 0
+    }
+  ],
+  "discrep
+──────────────────────
+
+   transcript lines: 1
+   claims: 3
+   discrepancies: 1
+── done ──
+
+{"level":30,"time":1772277028197,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-2","res":{"statusCode":200},"responseTime":27660.488700002432,"msg":"request completed"}
+
+── VLM raw response ──
+{
+  "transcript": [
+    {
+      "text": "Me trying to justify my O(n^n) solution with 13 nested loops to the interviewer",
+      "timestampMs": 0
+    }
+  ],
+  "claims": [
+    {
+      "id": "claim1",
+      "text": "O(n^n) solution",
+      "reasoning": "Time complexity notation indicating exponential growth with respect to n",
+      "authorSources": [],
+      "timestampMs": 0
+    },
+    {
+      "id": "claim2",
+      "text": "13 nested loops",
+      "reasoning": "Specific number of nested loops in the solution",
+      "authorSources": [],
+      "timestampMs": 0
+    },
+    {
+      "id": "claim3",
+      "text": "justifying to the interviewer",
+      "reasoning": "Context of the speaker's action in a coding interview scenario",
+      "authorSources": [],
+      "timestampMs": 0
+    }
+  ],
+  "discrepancies": [
+    {
+      "description": "The visual context of the World Economic Forum event does not align with the textual claim of a coding interview scenario, creating a contextual mismatch.",
+ 
+──────────────────────
+
+   transcript lines: 1
+   claims: 3
+   discrepancies: 1
+── done ──
+
+{"level":30,"time":1772277028398,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-4","res":{"statusCode":200},"responseTime":24499.138900011778,"msg":"request completed"}
+
+── VLM raw response ──
+{
+  "transcript": [
+    {
+      "text": "It's 3am and i'm STILL doing hw",
+      "timestampMs": 0
+    },
+    {
+      "text": "DO NOT become a business major 🌹",
+      "timestampMs": 0
+    }
+  ],
+  "claims": [
+    {
+      "id": "claim1",
+      "text": "It's 3am and i'm STILL doing hw",
+      "reasoning": "Stated in the text overlay across frames, indicating the person's current time and activity",
+      "authorSources": [],
+      "timestampMs": 0
+    },
+    {
+      "id": "claim2",
+      "text": "DO NOT become a business major 🌹",
+      "reasoning": "Stated in the text overlay across frames, serving as a warning about choosing a business major",
+      "authorSources": [],
+      "timestampMs": 0
+    },
+    {
+      "id": "claim3",
+      "text": "Sort by color! Drag each car to the box that is the same color",
+      "reasoning": "Visible on the computer screen in frame 0:04, describing the homework task",
+      "authorSources": [],
+      "timestampMs": 4000
+    }
+  ],
+  "discrepancies": [
+──────────────────────
+
+   transcript lines: 2
+   claims: 3
+   discrepancies: 1
+── done ──
+
+{"level":30,"time":1772277038696,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-7","res":{"statusCode":200},"responseTime":34794.9715000093,"msg":"request completed"}
+{"level":30,"time":1772277047934,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-8","req":{"method":"POST","url":"/v1/analyze-reel","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":64131},"msg":"incoming request"}
+
+→ POST /v1/analyze-reel  reelId=DPuLQo6kjES  videoUrl=https://www.instagram.com/reels/DPuLQo6kjES/...
+
+── analyzeReel: DPuLQo6kjES ──
+   videoUrl: https://www.instagram.com/reels/DPuLQo6kjES/...
+   yt-dlp downloading: https://www.instagram.com/reels/DPuLQo6kjES/
+{"level":30,"time":1772277047960,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-9","req":{"method":"POST","url":"/v1/analyze-reel","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":53159},"msg":"incoming request"}
+
+→ POST /v1/analyze-reel  reelId=DUQ2lQCD7YS  videoUrl=https://www.instagram.com/reels/DUQ2lQCD7YS/...
+
+── analyzeReel: DUQ2lQCD7YS ──
+   videoUrl: https://www.instagram.com/reels/DUQ2lQCD7YS/...
+
+→ POST /v1/analyze-reel  reelId=DRTDMgKEahW  videoUrl=https://www.instagram.com/reels/DRTDMgKEahW/...
+
+── analyzeReel: DRTDMgKEahW ──
+   videoUrl: https://www.instagram.com/reels/DRTDMgKEahW/...
+
+→ POST /v1/analyze-reel  reelId=DOpEgDWiSbY  videoUrl=https://www.instagram.com/reels/DOpEgDWiSbY/...
+
+── analyzeReel: DOpEgDWiSbY ──
+   videoUrl: https://www.instagram.com/reels/DOpEgDWiSbY/...
+
+→ POST /v1/analyze-reel  reelId=DRmSqSujZXX  videoUrl=https://www.instagram.com/reels/DRmSqSujZXX/...
+
+── analyzeReel: DRmSqSujZXX ──
+   videoUrl: https://www.instagram.com/reels/DRmSqSujZXX/...
+
+→ POST /v1/analyze-reel  reelId=DTKOP1LDiCK  videoUrl=https://www.instagram.com/reels/DTKOP1LDiCK/...
+
+── analyzeReel: DTKOP1LDiCK ──
+   videoUrl: https://www.instagram.com/reels/DTKOP1LDiCK/...
+   yt-dlp downloading: https://www.instagram.com/reels/DUQ2lQCD7YS/
+{"level":30,"time":1772277047963,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-a","req":{"method":"POST","url":"/v1/analyze-reel","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":53546},"msg":"incoming request"}
+{"level":30,"time":1772277047964,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-b","req":{"method":"POST","url":"/v1/analyze-reel","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":50793},"msg":"incoming request"}
+{"level":30,"time":1772277047965,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-c","req":{"method":"POST","url":"/v1/analyze-reel","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":54053},"msg":"incoming request"}
+{"level":30,"time":1772277047966,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-d","req":{"method":"POST","url":"/v1/analyze-reel","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":59652},"msg":"incoming request"}
+   yt-dlp downloading: https://www.instagram.com/reels/DRTDMgKEahW/
+   yt-dlp downloading: https://www.instagram.com/reels/DOpEgDWiSbY/
+   yt-dlp downloading: https://www.instagram.com/reels/DRmSqSujZXX/
+   yt-dlp downloading: https://www.instagram.com/reels/DTKOP1LDiCK/
+   frames extracted: 4
+   frames extracted: 3
+   frames extracted: 5
+   frames extracted: 5
+   frames extracted: 5
+   frames extracted: 4
+
+── VLM raw response ──
+{
+  "transcript": [
+    {
+      "text": "me as soon as i land that summer '26 internship and my hb start talm bout some \"yo\"",
+      "timestampMs": 0
+    }
+  ],
+  "claims": [
+    {
+      "id": "claim1",
+      "text": "me as soon as i land that summer '26 internship",
+      "reasoning": "States the individual secured a summer 2026 internship, a specific factual claim about employment timing.",
+      "authorSources": [],
+      "timestampMs": 0
+    },
+    {
+      "id": "claim2",
+      "text": "my hb start talm bout some \"yo\"",
+      "reasoning": "Describes the homeboy's action of discussing a topic ('yo'), a claim about social interaction.",
+      "authorSources": [],
+      "timestampMs": 0
+    },
+    {
+      "id": "claim3",
+      "text": "as soon as i land",
+      "reasoning": "Indicates immediate timing of the homeboy's discussion following internship acceptance, a claim about sequence of events.",
+      "authorSources": [],
+      "timestampMs": 0
+    }
+  ],
+  "discrepancies": [
+   
+──────────────────────
+
+   transcript lines: 1
+   claims: 3
+   discrepancies: 1
+── done ──
+
+{"level":30,"time":1772277077060,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-d","res":{"statusCode":200},"responseTime":29094.5136000216,"msg":"request completed"}
+{"level":30,"time":1772277077062,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-e","req":{"method":"POST","url":"/v1/analyze-reel","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":59652},"msg":"incoming request"}
+
+→ POST /v1/analyze-reel  reelId=DVJr-UDkXLK  videoUrl=https://www.instagram.com/reels/DVJr-UDkXLK/...
+
+── analyzeReel: DVJr-UDkXLK ──
+   videoUrl: https://www.instagram.com/reels/DVJr-UDkXLK/...
+   yt-dlp downloading: https://www.instagram.com/reels/DVJr-UDkXLK/
+   frames extracted: 4
+
+── VLM raw response ──
+{
+  "transcript": [
+    {"text": "Year 1 of Engineering", "timestampMs": 0},
+    {"text": "How to Analyze Circuits", "timestampMs": 0},
+    {"text": "Circuit Basics • Circuit Design and Analysis", "timestampMs": 0},
+    {"text": "By: Louvil Abasolo", "timestampMs": 0},
+    {"text": "Year 2 of Engineering", "timestampMs": 2000},
+    {"text": "All resistor units in Ohm otherwise stated. After completing DC measurements you may remove Ammeters.", "timestampMs": 2000},
+    {"text": "The 1 Ohm resistors help to protect Q1 & Q2 against the thermal runaway.", "timestampMs": 2000},
+    {"text": "Fig. 2", "timestampMs": 2000},
+    {"text": "Fig. 3", "timestampMs": 2000},
+    {"text": "Year 3 of Engineering", "timestampMs": 4000},
+    {"text": "Year 4 of Engineering", "timestampMs": 8000}
+  ],
+  "claims": [
+    {
+      "id": "claim1",
+      "text": "The video depicts a progression of circuit complexity from Year 1 to Year 4 of engineering education.",
+      "reasoning": "The frames explicitly la
+──────────────────────
+
+   transcript lines: 11
+   claims: 3
+   discrepancies: 0
+── done ──
+
+{"level":30,"time":1772277096984,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-9","res":{"statusCode":200},"responseTime":49023.67770001292,"msg":"request completed"}
+{"level":30,"time":1772277096986,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-f","req":{"method":"POST","url":"/v1/analyze-reel","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":53159},"msg":"incoming request"}
+
+→ POST /v1/analyze-reel  reelId=DRAkkINki0e  videoUrl=https://www.instagram.com/reels/DRAkkINki0e/...
+
+── analyzeReel: DRAkkINki0e ──
+   videoUrl: https://www.instagram.com/reels/DRAkkINki0e/...
+   yt-dlp downloading: https://www.instagram.com/reels/DRAkkINki0e/
+
+── VLM raw response ──
+{
+  "transcript": [
+    {"text": "TA: 'I don't know why. Your program suddenly worked this morning'", "timestampMs": 0},
+    {"text": "My team the night before:", "timestampMs": 0},
+    {"text": "The absentee", "timestampMs": 0},
+    {"text": "Team lead", "timestampMs": 0},
+    {"text": "The one who did nothing", "timestampMs": 0},
+    {"text": "The vibe coder", "timestampMs": 2000},
+    {"text": "The team's genius", "timestampMs": 2000},
+    {"text": "Snack eater", "timestampMs": 4000},
+    {"text": "Chatgpt", "timestampMs": 4000},
+    {"text": "@memershivemind", "timestampMs": 0}
+  ],
+  "claims": [],
+  "discrepancies": [
+    {
+      "description": "The visual depicts anime characters, but the textual context is about a programming team, creating a mismatch in context.",
+      "frameTimestampMs": 0,
+      "severity": "low"
+    },
+    {
+      "description": "The label 'Chatgpt' is applied to a human character, but ChatGPT is a language model, not a person.",
+      "frameTimestampMs": 4
+──────────────────────
+
+   transcript lines: 10
+   claims: 0
+   discrepancies: 3
+── done ──
+
+{"level":30,"time":1772277097309,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-c","res":{"statusCode":200},"responseTime":49344.66550001502,"msg":"request completed"}
+{"level":30,"time":1772277097311,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-g","req":{"method":"POST","url":"/v1/analyze-reel","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":54053},"msg":"incoming request"}
+
+→ POST /v1/analyze-reel  reelId=DTY__dEDNnk  videoUrl=https://www.instagram.com/reels/DTY__dEDNnk/...
+
+── analyzeReel: DTY__dEDNnk ──
+   videoUrl: https://www.instagram.com/reels/DTY__dEDNnk/...
+   yt-dlp downloading: https://www.instagram.com/reels/DTY__dEDNnk/
+   frames extracted: 5
+   frames extracted: 4
+
+── VLM raw response ──
+{
+  "transcript": [
+    {
+      "text": "I knew software engineering wasn't for me when I met people who leetcode for fun",
+      "timestampMs": 0
+    }
+  ],
+  "claims": [
+    {
+      "id": "claim1",
+      "text": "I knew software engineering wasn't for me",
+      "reasoning": "The creator's personal assertion about their career choice, indicating a subjective decision based on experience.",
+      "authorSources": [],
+      "timestampMs": 0
+    },
+    {
+      "id": "claim2",
+      "text": "when I met people who leetcode for fun",
+      "reasoning": "Indicates the existence of individuals using LeetCode as a recreational activity, which is a factual claim about user behavior.",
+      "authorSources": [],
+      "timestampMs": 0
+    },
+    {
+      "id": "claim3",
+      "text": "The meeting of those people led to the creator's decision.",
+      "reasoning": "Establishes a causal relationship between the encounter and the career decision, though not explicitly stated in the text.",
+      "a
+──────────────────────
+
+   transcript lines: 1
+   claims: 3
+   discrepancies: 2
+── done ──
+
+{"level":30,"time":1772277102129,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-8","res":{"statusCode":200},"responseTime":54195.129799991846,"msg":"request completed"}
+
+→ POST /v1/analyze-reel  reelId=DVCr_oIDrlZ  videoUrl=https://www.instagram.com/reels/DVCr_oIDrlZ/...
+{"level":30,"time":1772277102131,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-h","req":{"method":"POST","url":"/v1/analyze-reel","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":64131},"msg":"incoming request"}
+
+── analyzeReel: DVCr_oIDrlZ ──
+   videoUrl: https://www.instagram.com/reels/DVCr_oIDrlZ/...
+   yt-dlp downloading: https://www.instagram.com/reels/DVCr_oIDrlZ/
+
+── VLM raw response ──
+{
+  "transcript": [
+    {
+      "text": "the typa shi i was doing with people i literally just met during my first 2 weeks of college:",
+      "timestampMs": 0
+    }
+  ],
+  "claims": [],
+  "discrepancies": [
+    {
+      "description": "The video uses a scene from the movie 'Ferdinand' (a bull driving) to illustrate college experiences, which is not related to the actual context of college.",
+      "frameTimestampMs": 0,
+      "severity": "high"
+    }
+  ]
+}
+──────────────────────
+
+   transcript lines: 1
+   claims: 0
+   discrepancies: 1
+── done ──
+
+{"level":30,"time":1772277104921,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-e","res":{"statusCode":200},"responseTime":27858.70800000429,"msg":"request completed"}
+{"level":30,"time":1772277104923,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-i","req":{"method":"POST","url":"/v1/analyze-reel","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":59652},"msg":"incoming request"}
+
+→ POST /v1/analyze-reel  reelId=DTL52kbkrap  videoUrl=https://www.instagram.com/reels/DTL52kbkrap/...
+
+── analyzeReel: DTL52kbkrap ──
+   videoUrl: https://www.instagram.com/reels/DTL52kbkrap/...
+   yt-dlp downloading: https://www.instagram.com/reels/DTL52kbkrap/
+   frames extracted: 5
+   frames extracted: 4
+
+── VLM raw response ──
+{
+  "transcript": [
+    {"text": "RateMyProfessor.com", "timestampMs": 0},
+    {"text": "QUALITY 1.0", "timestampMs": 0},
+    {"text": "320M", "timestampMs": 0},
+    {"text": "AWFUL", "timestampMs": 0},
+    {"text": "For Credit: Yes", "timestampMs": 0},
+    {"text": "Attendance: Mandatory", "timestampMs": 0},
+    {"text": "Grade: No", "timestampMs": 0},
+    {"text": "Shut yo stupid ass up clown", "timestampMs": 0},
+    {"text": "How does one get these reviews 🌹🌹", "timestampMs": 0},
+    {"text": "DIFFICULTY 5.0", "timestampMs": 0},
+    {"text": "Geyaldrich and others", "timestampMs": 2},
+    {"text": "University of Texas", "timestampMs": 2},
+    {"text": "BEWARE OF POP QUIZZES", "timestampMs": 4},
+    {"text": "TEST HEAVY", "timestampMs": 4},
+    {"text": "Helpful 6", "timestampMs": 4},
+    {"text": "👎 1", "timestampMs": 4},
+    {"text": "You caught me...", "timestampMs": 6},
+    {"text": "QUALITY 5.0", "timestampMs": 6},
+    {"text": "320N", "timestampMs": 6},
+    {"text": "Would T
+──────────────────────
+
+   transcript lines: 27
+   claims: 3
+   discrepancies: 1
+── done ──
+
+{"level":30,"time":1772277112653,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-a","res":{"statusCode":200},"responseTime":64690.023399978876,"msg":"request completed"}
+
+── VLM raw response ──
+{
+  "transcript": [
+    {
+      "text": "Bro: 'can we go for a drive me and my gf just broke up'",
+      "timestampMs": 0
+    }
+  ],
+  "claims": [
+    {
+      "id": "claim1",
+      "text": "Bro: 'can we go for a drive me and my gf just broke up'",
+      "reasoning": "The text is prominently displayed on screen throughout the video, indicating the speaker's statement about wanting to go for a drive after a breakup.",
+      "authorSources": [],
+      "timestampMs": 0
+    },
+    {
+      "id": "claim2",
+      "text": "The car is a dark-colored sedan",
+      "reasoning": "The visual frames show a dark-colored sedan driving and parked, consistent with the vehicle's appearance.",
+      "authorSources": [],
+      "timestampMs": 0
+    },
+    {
+      "id": "claim3",
+      "text": "The scene occurs at night",
+      "reasoning": "The visual frames depict dark surroundings with artificial lighting (streetlights), indicating nighttime conditions.",
+      "authorSources": [],
+      "timestampMs": 0
+ 
+──────────────────────
+
+   transcript lines: 1
+   claims: 3
+   discrepancies: 0
+── done ──
+
+{"level":30,"time":1772277127880,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-g","res":{"statusCode":200},"responseTime":30569.490600019693,"msg":"request completed"}
+
+── VLM raw response ──
+{
+  "transcript": [
+    {
+      "text": "how i feel when the college tour groups watch me in my exhibit (campus)",
+      "timestampMs": 0
+    }
+  ],
+  "claims": [
+    {
+      "id": "claim1",
+      "text": "College tour groups visit campus exhibits.",
+      "reasoning": "The video's text explicitly references college tour groups observing the creator in a campus exhibit, indicating this is a common scenario in higher education.",
+      "authorSources": [],
+      "timestampMs": 0
+    },
+    {
+      "id": "claim2",
+      "text": "The video uses anthropomorphic animal imagery to humorously represent the feeling of being observed by tour groups.",
+      "reasoning": "Frames 0:02-0:04 show a bear and tiger, which are not typical for a campus exhibit, suggesting a humorous exaggeration of the creator's feelings.",
+      "authorSources": [],
+      "timestampMs": 2000
+    },
+    {
+      "id": "claim3",
+      "text": "The video is a self-produced social media post (Instagram Reel) by an unknown 
+──────────────────────
+
+   transcript lines: 1
+   claims: 3
+   discrepancies: 1
+── done ──
+
+{"level":30,"time":1772277128006,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-h","res":{"statusCode":200},"responseTime":25875.51890000701,"msg":"request completed"}
+
+── VLM raw response ──
+{
+  "transcript": [
+    {
+      "text": "How me and bro starts moving after chatting with Goldman Sachs representative at the career fair",
+      "timestampMs": 0
+    },
+    {
+      "text": "heypretus.com",
+      "timestampMs": 0
+    }
+  ],
+  "claims": [
+    {
+      "id": "claim1",
+      "text": "Goldman Sachs representatives attend career fairs.",
+      "reasoning": "The video's text references a Goldman Sachs representative at a career fair, which aligns with known recruitment practices of financial institutions.",
+      "authorSources": [
+        "Goldman Sachs career page"
+      ],
+      "timestampMs": 0
+    },
+    {
+      "id": "claim2",
+      "text": "The video is a meme created by heypretus.com.",
+      "reasoning": "The website 'heypretus.com' is displayed in all frames, indicating the creator.",
+      "authorSources": [
+        "heypretus.com"
+      ],
+      "timestampMs": 0
+    },
+    {
+      "id": "claim3",
+      "text": "The video depicts a scenario where individuals move a
+──────────────────────
+
+   transcript lines: 2
+   claims: 3
+   discrepancies: 3
+── done ──
+
+{"level":30,"time":1772277129411,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-f","res":{"statusCode":200},"responseTime":32425.222200006247,"msg":"request completed"}
+
+── VLM raw response ──
+{
+  "transcript": [
+    {
+      "text": "how high schoolers with everything to lose be cutting up on the freeway in their moms minivan",
+      "timestampMs": 0
+    }
+  ],
+  "claims": [
+    {
+      "id": "claim1",
+      "text": "high schoolers with everything to lose be cutting up on the freeway",
+      "reasoning": "The caption explicitly states that high schoolers are engaging in reckless driving ('cutting up') on the freeway, implying a specific scenario of dangerous behavior.",
+      "authorSources": [],
+      "timestampMs": 0
+    },
+    {
+      "id": "claim2",
+      "text": "in their moms minivan",
+      "reasoning": "The caption specifies that the vehicle used by the high schoolers is their mother's minivan, indicating the type of vehicle involved.",
+      "authorSources": [],
+      "timestampMs": 0
+    },
+    {
+      "id": "claim3",
+      "text": "high schoolers with everything to lose",
+      "reasoning": "The phrase 'with everything to lose' suggests that the high schoolers fac
+──────────────────────
+
+   transcript lines: 1
+   claims: 3
+   discrepancies: 3
+── done ──
+
+{"level":30,"time":1772277132340,"pid":32824,"hostname":"AhmetLaptop","reqId":"req-i","res":{"statusCode":200},"responseTime":27417.48489999771,"msg":"request completed"}
