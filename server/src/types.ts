@@ -1,8 +1,13 @@
-export interface CheckRequest {
-  reelId: string;
+export interface TranscriptSegment {
   text: string;
-  source: 'caption' | 'asr';
+  start_ms: number;
+  end_ms: number;
+}
+
+export interface ProcessReelRequest {
+  reelId: string;
   creator: string;
+  transcript: TranscriptSegment[];
 }
 
 export interface Claim {
@@ -10,13 +15,14 @@ export interface Claim {
   text: string;
   type: string; // treatment | statistic | mechanism | product
   entities: string[];
+  timestamp_ms: number; // when in the reel this claim appears
 }
 
 export interface Source {
   title: string;
   url: string;
   excerpt: string;
-  sourceName: string; // "WHO", "Cochrane", "FDA"
+  siteName: string;
 }
 
 export interface Verdict {
@@ -26,8 +32,12 @@ export interface Verdict {
   sources: Source[];
 }
 
-export type SSEEvent =
-  | { type: 'claim_detected'; claim: Claim }
-  | { type: 'verdict'; verdict: Verdict }
-  | { type: 'no_claims' }
-  | { type: 'error'; message: string };
+export interface CheckedClaim {
+  claim: Claim;
+  verdict: Verdict;
+}
+
+export interface ProcessReelResponse {
+  reelId: string;
+  checkedClaims: CheckedClaim[];
+}

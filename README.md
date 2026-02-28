@@ -1,36 +1,39 @@
 # ReelCheck
 
-Real-time medical claim fact-checking for Instagram Reels. A Chrome extension that reads captions and transcribes audio as a reel plays, checks health claims against a fact-check corpus, and overlays verdict cards directly on the video.
+Real-time medical claim fact-checking for Instagram Reels. A Chrome extension that transcribes the full audio of a reel with timestamps, extracts health claims, searches the live web via Firecrawl, and overlays verdict cards at the exact moment each claim is made — with prefetching so the next reel's verdicts are ready before the user scrolls to it.
 
 ---
 
 ## How It Works
 
 ```
-1. User opens an Instagram Reel
-2. Content script detects reel → extracts caption text immediately (0ms)
-3. Simultaneously: tab audio captured → streamed to Deepgram → partial transcripts arrive every ~300-500ms
-4. Caption text and finalized ASR sentences are both sent to POST /v1/check
-5. Server pipeline:
-   a. Haiku extracts verifiable health claims (or returns "no claims")
-   b. For each claim: embed → Qdrant vector search → top 3 sources
-   c. Haiku writes a grounded verdict using only retrieved sources
-   d. Results stream back via SSE
-6. Overlay renders a verdict card on the reel
-```
+Current reel:
+1. Reel loads → tab audio captured → streamed to Deepgram WebSocket
+2. Deepgram returns final transcript segments with timestamps
+3. Full transcript sent to POST /v1/process-reel
+4. Server:
+   a. Haiku extracts all claims with timestamps from the full transcript
+   b. For each claim: Firecrawl searches the web → scrapes top results
+   c. Haiku writes a grounded verdict from the scraped content
+   d. Returns { checkedClaims: [{ claim, verdict }] } sorted by timestamp
+5. Overlay shows verdict cards as video playback reaches each claim's timestamp
 
-Captions fire instantly. ASR catches anything spoken but not written. Both feed the same endpoint.
+Next reel (prefetch):
+1. While user watches reel N, extension detects reel N+1 in the DOM
+2. Starts audio capture + transcription for reel N+1 in the background
+3. Sends transcript to backend to process N+1 silently
+4. Results cached server-side by reelId
+5. When user scrolls to reel N+1 → instant cache hit → verdicts shown immediately
+```
 
 ---
 
 ## Packages
 
 ```
-extension/      Chrome Extension (Manifest V3)
-server/         Fastify API — SSE endpoint + LLM pipeline
-corpus/         Scraping + indexing pipeline for the fact-check corpus
-scripts/        Seed script to run the full corpus pipeline in one command
-packages/web/   Standalone viewer for system.tsx architecture diagram
+extension/    Chrome Extension (Manifest V3) — capture, transcribe, prefetch, overlay
+server/       Fastify API — transcript → claims → Firecrawl → verdicts
+packages/web/ Architecture diagram viewer
 ```
 
 ---
@@ -41,7 +44,6 @@ packages/web/   Standalone viewer for system.tsx architecture diagram
 
 - Node.js 20+
 - pnpm 9+
-- Docker (for Qdrant)
 
 ### Step 1 — Install dependencies
 
@@ -55,91 +57,130 @@ pnpm install
 cp .env.example .env
 ```
 
-Open `.env` and fill in:
-
 | Variable | Where to get it |
 |---|---|
 | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) |
-| `OPENAI_API_KEY` | [platform.openai.com](https://platform.openai.com) |
 | `DEEPGRAM_API_KEY` | [console.deepgram.com](https://console.deepgram.com) |
+| `FIRECRAWL_API_KEY` | [firecrawl.dev](https://firecrawl.dev) |
 
-`QDRANT_URL`, `QDRANT_COLLECTION`, and `PORT` have defaults and can be left as-is for local development.
-
-### Step 3 — Start Qdrant
-
-```bash
-docker run -p 6333:6333 qdrant/qdrant
-```
-
-Leave this running in its own terminal. Qdrant stores the vector database at `http://localhost:6333`.
-
-### Step 4 — Index the corpus
-
-Run all 6 scrapers in sequence — scrape → chunk → embed → upload to Qdrant:
-
-```bash
-cd corpus && npx tsx src/index.ts --all
-```
-
-To run a single scraper instead:
-
-```bash
-npx tsx src/index.ts pubmed
-npx tsx src/index.ts who
-npx tsx src/index.ts cdc
-npx tsx src/index.ts snopes
-npx tsx src/index.ts fda
-npx tsx src/index.ts cochrane
-```
-
-This only needs to run once. Re-run it whenever you want to refresh the corpus.
-
-### Step 5 — Start the server
+### Step 3 — Start the server
 
 ```bash
 cd server && pnpm dev
+# Listening on http://localhost:3001
 ```
 
-The API will be listening at `http://localhost:3001`. The `dev` script uses `tsx watch` so the server hot-reloads on file changes.
-
-To test the endpoint manually:
+To test manually:
 
 ```bash
-curl -N -X POST http://localhost:3001/v1/check \
+curl -X POST http://localhost:3001/v1/process-reel \
   -H "Content-Type: application/json" \
-  -d '{"reelId":"test","text":"Vitamin D cures cancer","source":"caption","creator":"@test"}'
+  -d '{
+    "reelId": "test123",
+    "creator": "@healthguru",
+    "transcript": [
+      { "text": "Studies show vitamin D cures cancer.", "start_ms": 4200, "end_ms": 6800 },
+      { "text": "Taking 10000 IU daily is completely safe.", "start_ms": 7100, "end_ms": 9500 }
+    ]
+  }'
 ```
 
-You should see SSE events stream back in the terminal.
-
-### Step 6 — Build and load the extension
+### Step 4 — Build and load the extension
 
 ```bash
 cd extension && pnpm build
 ```
 
-Then in Chrome:
-
 1. Open `chrome://extensions`
-2. Enable **Developer Mode** (toggle in top right)
-3. Click **Load unpacked**
-4. Select the `extension/dist/` folder
+2. Enable **Developer Mode**
+3. Click **Load unpacked** → select `extension/dist/`
 
-For active development, use watch mode so the extension rebuilds on every save:
+For development with auto-rebuild:
 
 ```bash
 cd extension && pnpm dev
 ```
 
-After each rebuild, click the refresh icon on the extension card in `chrome://extensions` to pick up the changes, then reload the Instagram tab.
+After each rebuild, click the refresh icon on the extension card then reload the Instagram tab.
 
-### Step 7 — Use it
+### Step 5 — Use it
 
-1. Open any Instagram Reel at `instagram.com`
-2. The extension icon should show as active
-3. If the reel caption or audio contains a health claim, a verdict card will appear over the video within ~200ms–1.2s
+1. Open any Instagram Reel
+2. As the reel plays, Deepgram transcribes the audio
+3. When the transcript is complete, it's processed against the live web via Firecrawl
+4. Verdict cards appear on screen at the timestamp of each claim
+5. Scroll to the next reel — if prefetching completed, verdicts are instant
 
-Use the extension popup to toggle fact-checking on/off per-tab.
+---
+
+## API
+
+### `POST /v1/process-reel`
+
+Accepts a full timestamped transcript, returns all fact-checked claims.
+
+**Request**
+```json
+{
+  "reelId": "abc123",
+  "creator": "@healthguru",
+  "transcript": [
+    { "text": "Vitamin D cures cancer.", "start_ms": 4200, "end_ms": 5800 }
+  ]
+}
+```
+
+**Response**
+```json
+{
+  "reelId": "abc123",
+  "checkedClaims": [
+    {
+      "claim": {
+        "id": "c1",
+        "text": "vitamin D cures cancer",
+        "type": "treatment",
+        "entities": ["vitamin D", "cancer"],
+        "timestamp_ms": 4200
+      },
+      "verdict": {
+        "claimId": "c1",
+        "status": "contradicted",
+        "summary": "No clinical trials support this. Some research suggests a preventive role, but vitamin D is not an established cancer treatment.",
+        "sources": [
+          { "title": "Vitamin D and Cancer", "url": "...", "excerpt": "...", "siteName": "cancer.gov" }
+        ]
+      }
+    }
+  ]
+}
+```
+
+### `GET /v1/reel/:reelId`
+
+Returns cached results for a reel, or `404 { cached: false }` if not yet processed.
+
+---
+
+## Tech Stack
+
+| Layer | Stack |
+|---|---|
+| Chrome Extension | Manifest V3, React (Shadow DOM overlay), Web Audio API, Deepgram WebSocket |
+| Backend | Fastify, Anthropic SDK (claude-haiku-4-5), in-memory reel cache |
+| Fact-checking | Firecrawl search + scrape (live web, no corpus needed) |
+| Transcription | Deepgram nova-2-medical, word-level timestamps |
+
+---
+
+## Environment Variables
+
+```env
+ANTHROPIC_API_KEY=     # Claim extraction + verdict synthesis
+DEEPGRAM_API_KEY=      # Streaming audio transcription
+FIRECRAWL_API_KEY=     # Web search + scraping
+PORT=                  # Default: 3001
+```
 
 ---
 
@@ -151,74 +192,6 @@ Use the extension popup to toggle fact-checking on/off per-tab.
 | `cd server && pnpm dev` | Start API server with hot reload |
 | `cd extension && pnpm dev` | Build extension in watch mode |
 | `cd extension && pnpm build` | Production build of extension |
-| `cd corpus && npx tsx src/index.ts --all` | Run all scrapers and index to Qdrant |
-| `cd corpus && npx tsx src/index.ts <name>` | Run a single scraper by name |
-| `npx tsx scripts/seed.ts` | Same as `--all` from the root |
-
----
-
-## Corpus Sources
-
-| Source | What | Volume |
-|---|---|---|
-| PubMed / MEDLINE | Biomedical abstracts via NCBI Entrez API | ~5K abstracts |
-| WHO | Fact sheets and disease pages | ~400 documents |
-| CDC | Health topics and MMWR highlights | ~500 documents |
-| Snopes | Pre-checked health claims | ~2K claims |
-| FDA | Drug safety alerts and consumer updates | ~300 documents |
-| Cochrane | Systematic review plain-language summaries | ~1K summaries |
-
-Collection: `medical_facts` · Vector size: 1536 (text-embedding-3-small) · Distance: Cosine
-
----
-
-## API
-
-### `POST /v1/check`
-
-**Request**
-```json
-{
-  "reelId": "abc123",
-  "text": "Studies prove vitamin D cures cancer",
-  "source": "caption",
-  "creator": "@healthguru"
-}
-```
-
-**Response** — SSE stream (`text/event-stream`)
-```
-data: {"type":"claim_detected","claim":{"id":"c1","text":"vitamin D cures cancer","type":"treatment","entities":["vitamin D","cancer"]}}
-
-data: {"type":"verdict","verdict":{"claimId":"c1","status":"contradicted","summary":"No clinical trials support this. Some research suggests a preventive role, but vitamin D is not an established cancer treatment.","sources":[...]}}
-```
-
-Verdict statuses: `supported` · `contradicted` · `partially_true` · `unverified`
-
----
-
-## Tech Stack
-
-| Layer | Stack |
-|---|---|
-| Chrome Extension | Manifest V3, React (Shadow DOM overlay), Web Audio API, Deepgram WebSocket |
-| Backend | Fastify, Anthropic SDK (claude-haiku-4-5), SSE streaming |
-| Retrieval | Qdrant, OpenAI text-embedding-3-small |
-| Corpus Pipeline | Node.js scrapers, NCBI Entrez API, Cheerio |
-| Infrastructure | Docker (Qdrant), any Node host (Fly.io, Railway) |
-
----
-
-## Environment Variables
-
-```env
-ANTHROPIC_API_KEY=     # Claim extraction + verdict synthesis
-OPENAI_API_KEY=        # Embeddings only
-DEEPGRAM_API_KEY=      # Streaming audio transcription
-QDRANT_URL=            # Default: http://localhost:6333
-QDRANT_COLLECTION=     # Default: medical_facts
-PORT=                  # Default: 3001
-```
 
 ---
 
@@ -226,18 +199,14 @@ PORT=                  # Default: 3001
 
 | Feature | Status |
 |---|---|
-| Read reel captions from DOM | ✅ |
-| Stream audio → Deepgram ASR | ✅ |
-| Extract claims via Haiku | ✅ |
-| Search corpus via Qdrant | ✅ |
-| Generate verdict via Haiku | ✅ |
-| Stream results via SSE | ✅ |
-| Overlay verdict card on reel | ✅ |
+| Full reel audio transcription via Deepgram | ✅ |
+| Timestamped transcript → claim extraction via Haiku | ✅ |
+| Live web fact-checking via Firecrawl | ✅ |
+| Verdict cards timed to video playback | ✅ |
+| Prefetch next reel before user scrolls | ✅ |
+| Server-side reel result cache | ✅ |
 | On/off toggle | ✅ |
-| Corpus scrapers (6 sources) | ✅ |
-| Chunking + embedding pipeline | ✅ |
-| Redis caching | ❌ Later |
-| Cross-encoder reranking | ❌ Later |
+| Redis persistent cache | ❌ Later |
+| Cross-encoder reranking of Firecrawl results | ❌ Later |
 | OCR / VLM visual analysis | ❌ Later |
 | User feedback system | ❌ Later |
-| Scheduled corpus updates | ❌ Later |
