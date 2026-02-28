@@ -44,6 +44,7 @@ function scanAndPost() {
         shortcode: result.shortcode,
         mediaId: result.mediaId,
         videoUrl,
+        blobSrc: video.currentSrc || '',  // correlation key for isolated world
       },
       '*',
     )

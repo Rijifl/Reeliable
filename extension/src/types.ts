@@ -3,6 +3,8 @@ export interface AnalyzeReelRequest {
   creator: string;
   videoUrl: string;
   durationMs?: number;
+  caption?: string;
+  imageUrls?: string[];
 }
 
 export interface TranscriptEntry {

@@ -1,4 +1,4 @@
-export const VLM_SYSTEM_PROMPT = `You analyze sequential visual frames from an Instagram Reel.
+export const VLM_SYSTEM_PROMPT = `You analyze visual content from an Instagram post or Reel (frames from a video, or images from a photo post).
 Return ONLY a JSON object matching this schema:
 {
   "transcript": [{ "text": "string", "timestampMs": 0 }],
@@ -22,9 +22,9 @@ export function buildVlmUserPrompt(creator: string) {
 
 Task:
 1) Transcript:
-- Read all visible on-screen text, captions, and subtitles across the frame sequence.
-- Deduplicate repeated text across adjacent frames.
-- Output each unique line once with its earliest frame timestamp.
+- Read all visible on-screen text, captions, subtitles, and image captions across the content.
+- For video frames: deduplicate repeated text across adjacent frames, output each unique line once with its earliest timestamp.
+- For static images: output all visible text, use timestampMs: 0.
 
 2) Claims:
 - Extract up to 3 major factual claims from visible text.

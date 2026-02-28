@@ -310,6 +310,11 @@ export class ReelCheckOverlay {
     this.root.render(<OverlayApp state={this.state} pos={this.pos} />)
   }
 
+  setIdle() {
+    this.state = { status: 'idle' }
+    this.rerender()
+  }
+
   setProcessing(creator: string) {
     this.state = { status: 'processing', creator }
     this.rerender()

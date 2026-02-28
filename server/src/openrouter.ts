@@ -7,8 +7,12 @@ import { getAnthropic } from './anthropic.js'
 
 type AnalysisBody = Omit<AnalyzeReelResponse, 'reelId'>
 
-export async function analyzeVideo(frames: ExtractedFrame[], creator: string): Promise<AnalysisBody> {
+export async function analyzeVideo(frames: ExtractedFrame[], creator: string, caption?: string): Promise<AnalysisBody> {
   const content: Anthropic.MessageParam['content'] = []
+
+  if (caption) {
+    content.push({ type: 'text', text: `Post caption: ${caption}` })
+  }
 
   for (const frame of frames) {
     content.push({ type: 'text', text: `[Frame at ${formatMs(frame.timestampMs)}]` })

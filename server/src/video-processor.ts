@@ -16,65 +16,44 @@ interface ExtractFramesOptions {
   maxFrames?: number
 }
 
+const VIDEO_EXTS = new Set(['.mp4', '.mov', '.webm', '.m4v', '.mkv'])
+const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp'])
+
 export async function extractFramesFromVideoUrl(
-  videoUrl: string,
+  mediaUrl: string,
   opts: ExtractFramesOptions = {},
+  imageUrls?: string[],
 ): Promise<ExtractedFrame[]> {
+  // Image post: fetch CDN URLs directly — no yt-dlp needed
+  if (imageUrls && imageUrls.length > 0) {
+    console.log(`   fetching ${imageUrls.length} image(s) directly from CDN`)
+    return fetchImagesAsFrames(imageUrls.slice(0, opts.maxFrames ?? 15))
+  }
+
   const intervalSeconds = opts.intervalSeconds ?? 2
   const maxFrames = opts.maxFrames ?? 15
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'reelcheck-frames-'))
-  const videoFile = path.join(tempDir, 'video.mp4')
-  const outputPattern = path.join(tempDir, 'frame-%03d.jpg')
 
   try {
-    // yt-dlp downloads the video (handles Instagram auth/MSE/HLS automatically)
-    // --cookies-from-browser chrome passes your logged-in session to yt-dlp
-    console.log(`   yt-dlp downloading: ${videoUrl.slice(0, 80)}`)
-    await execFileAsync(
-      'yt-dlp',
-      [
-        '--quiet',
-        '--no-warnings',
-        '--cookies-from-browser', 'chrome',
-        '-f', 'mp4/best[ext=mp4]/best',
-        '-o', videoFile,
-        videoUrl,
-      ],
-      { windowsHide: true, maxBuffer: 1024 * 1024 * 64 },
-    )
+    console.log(`   yt-dlp downloading: ${mediaUrl.slice(0, 80)}`)
+    await downloadMedia(mediaUrl, tempDir)
 
-    // ffmpeg extracts frames from the downloaded file
-    const vf = `fps=1/${intervalSeconds},scale='min(640,iw)':-2`
-    await execFileAsync(
-      'ffmpeg',
-      [
-        '-hide_banner',
-        '-loglevel', 'error',
-        '-y',
-        '-i', videoFile,
-        '-vf', vf,
-        '-q:v', '12',
-        '-frames:v', String(maxFrames),
-        outputPattern,
-      ],
-      { windowsHide: true, maxBuffer: 1024 * 1024 * 8 },
-    )
-
-    const files = (await readdir(tempDir))
-      .filter((file) => file.endsWith('.jpg'))
+    const files = await readdir(tempDir)
+    const videoFile = files.find(f => VIDEO_EXTS.has(path.extname(f).toLowerCase()))
+    const imageFiles = files
+      .filter(f => IMAGE_EXTS.has(path.extname(f).toLowerCase()))
       .sort((a, b) => a.localeCompare(b))
+      .slice(0, maxFrames)
 
-    const frames: ExtractedFrame[] = []
-    for (let i = 0; i < files.length; i++) {
-      const fullPath = path.join(tempDir, files[i])
-      const bytes = await readFile(fullPath)
-      frames.push({
-        base64: bytes.toString('base64'),
-        timestampMs: i * intervalSeconds * 1000,
-      })
+    if (videoFile) {
+      return await extractFramesFromVideo(path.join(tempDir, videoFile), tempDir, intervalSeconds, maxFrames)
     }
 
-    return frames
+    if (imageFiles.length > 0) {
+      return await loadImagesAsFrames(imageFiles.map(f => path.join(tempDir, f)))
+    }
+
+    throw new Error('yt-dlp downloaded no usable media files')
   } catch (err) {
     const message = String(err)
     if (message.includes('yt-dlp') && message.includes('not found')) {
@@ -87,4 +66,92 @@ export async function extractFramesFromVideoUrl(
   } finally {
     await rm(tempDir, { recursive: true, force: true })
   }
+}
+
+async function downloadMedia(url: string, tempDir: string): Promise<void> {
+  const ytdlpBase = [
+    '--quiet', '--no-warnings',
+    '--cookies-from-browser', 'chrome',
+  ]
+
+  try {
+    // First attempt: download as video (works for reels/video posts)
+    await execFileAsync(
+      'yt-dlp',
+      [...ytdlpBase, '-o', path.join(tempDir, 'media.%(ext)s'), url],
+      { windowsHide: true, maxBuffer: 1024 * 1024 * 128 },
+    )
+  } catch (err) {
+    const msg = String(err)
+    if (!msg.includes('No video formats found')) throw err
+
+    // Fallback: image post — download the thumbnail (= the actual image)
+    console.log('   image post detected, downloading thumbnail')
+    await execFileAsync(
+      'yt-dlp',
+      [
+        ...ytdlpBase,
+        '--write-thumbnail',
+        '--convert-thumbnails', 'jpg',
+        '--skip-download',
+        '-o', path.join(tempDir, 'media'),
+        url,
+      ],
+      { windowsHide: true, maxBuffer: 1024 * 1024 * 32 },
+    )
+  }
+}
+
+async function extractFramesFromVideo(
+  videoFile: string,
+  tempDir: string,
+  intervalSeconds: number,
+  maxFrames: number,
+): Promise<ExtractedFrame[]> {
+  const outputPattern = path.join(tempDir, 'frame-%03d.jpg')
+  const vf = `fps=1/${intervalSeconds},scale='min(640,iw)':-2`
+
+  await execFileAsync(
+    'ffmpeg',
+    [
+      '-hide_banner', '-loglevel', 'error',
+      '-y', '-i', videoFile,
+      '-vf', vf,
+      '-q:v', '4',
+      '-frames:v', String(maxFrames),
+      outputPattern,
+    ],
+    { windowsHide: true, maxBuffer: 1024 * 1024 * 8 },
+  )
+
+  const frameFiles = (await readdir(tempDir))
+    .filter(f => f.startsWith('frame-') && f.endsWith('.jpg'))
+    .sort((a, b) => a.localeCompare(b))
+
+  return Promise.all(
+    frameFiles.map(async (file, i) => ({
+      base64: (await readFile(path.join(tempDir, file))).toString('base64'),
+      timestampMs: i * intervalSeconds * 1000,
+    })),
+  )
+}
+
+async function loadImagesAsFrames(imagePaths: string[]): Promise<ExtractedFrame[]> {
+  return Promise.all(
+    imagePaths.map(async (filePath, i) => ({
+      base64: (await readFile(filePath)).toString('base64'),
+      timestampMs: i * 1000,
+    })),
+  )
+}
+
+async function fetchImagesAsFrames(urls: string[]): Promise<ExtractedFrame[]> {
+  return Promise.all(
+    urls.map(async (url, i) => {
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`Failed to fetch image ${url}: ${res.status}`)
+      const buf = await res.arrayBuffer()
+      return { base64: Buffer.from(buf).toString('base64'), timestampMs: i * 1000 }
+    }),
+  )
 }
