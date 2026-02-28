@@ -1,2 +1,2 @@
 # kebab_and_tacos
-the goated team
+The plan is code stuff, use ai, and win. Lets go 🐅.
