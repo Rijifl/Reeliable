@@ -1,38 +1,22 @@
-import { CheckRequest, SSEEvent } from './types'
+import { ProcessReelRequest, ProcessReelResponse } from './types'
 
 const SERVER_URL = 'http://localhost:3001'
 
-// SSE client — POST /v1/check and stream verdict events back
-export function connectSSE(req: CheckRequest, onEvent?: (e: SSEEvent) => void) {
-  fetch(`${SERVER_URL}/v1/check`, {
+// Send full transcript to backend for processing
+export async function processReel(req: ProcessReelRequest): Promise<ProcessReelResponse> {
+  const res = await fetch(`${SERVER_URL}/v1/process-reel`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req),
-  }).then(async (res) => {
-    if (!res.body) return
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
+  })
+  if (!res.ok) throw new Error(`process-reel failed: ${res.status}`)
+  return res.json()
+}
 
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
-        try {
-          const event: SSEEvent = JSON.parse(line.slice(6))
-          onEvent?.(event)
-          // Dispatch to overlay via custom DOM event
-          window.dispatchEvent(new CustomEvent('reelcheck:event', { detail: event }))
-        } catch {
-          // malformed SSE line — skip
-        }
-      }
-    }
-  }).catch(console.error)
+// Check if a reel has already been processed (for prefetch cache hit)
+export async function getCachedReel(reelId: string): Promise<ProcessReelResponse | null> {
+  const res = await fetch(`${SERVER_URL}/v1/reel/${reelId}`)
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error(`reel cache check failed: ${res.status}`)
+  return res.json()
 }

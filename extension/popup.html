@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>ReelCheck</title>
+    <style>
+      body { width: 220px; padding: 16px; font-family: system-ui, sans-serif; background: #0a0a0f; color: #e2e8f0; }
+      h1 { font-size: 15px; margin: 0 0 12px; }
+      label { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+      input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <h1>⬡ ReelCheck</h1>
+    <label>
+      <input type="checkbox" id="toggle" />
+      Enable fact-checking
+    </label>
+    <script type="module" src="./src/popup.ts"></script>
+  </body>
+</html>

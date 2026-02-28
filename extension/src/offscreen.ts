@@ -1,50 +1,61 @@
-// Offscreen document — runs MediaRecorder + Deepgram WebSocket
-// Audio flow: chrome.tabCapture → MediaRecorder → Deepgram → relay transcripts
-
+// Offscreen document — tab audio capture + Deepgram → full timestamped transcript
 import { AudioCapture } from './audio-capture'
 import { DeepgramClient } from './deepgram'
+import { TranscriptSegment } from './types'
 
-const audioCapture = new AudioCapture()
-const deepgram = new DeepgramClient()
-let currentReelId: string | null = null
+interface ActiveCapture {
+  audio: AudioCapture
+  deepgram: DeepgramClient
+  segments: TranscriptSegment[]
+}
+
+const captures = new Map<string, ActiveCapture>()
 
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === 'OFFSCREEN_START') {
-    currentReelId = msg.reelId
-    startCapture(msg.reelId)
-  }
-  if (msg.type === 'OFFSCREEN_STOP') {
-    stopCapture()
-  }
+  if (msg.type === 'OFFSCREEN_START') startCapture(msg.reelId)
+  if (msg.type === 'OFFSCREEN_STOP') stopCapture(msg.reelId)
 })
 
 async function startCapture(reelId: string) {
-  stopCapture()
+  if (captures.has(reelId)) return
 
-  // Get tab audio stream
   const stream = await (chrome.tabCapture as any).capture({ audio: true, video: false })
   if (!stream) return
 
   const apiKey = await getDeepgramKey()
+  const segments: TranscriptSegment[] = []
+
+  const deepgram = new DeepgramClient()
+  const audio = new AudioCapture()
+
+  captures.set(reelId, { audio, deepgram, segments })
 
   deepgram.connect({
     apiKey,
-    onTranscript: (text) => {
-      // Relay final transcript to background → content script
-      chrome.runtime.sendMessage({ type: 'ASR_TRANSCRIPT', reelId, transcript: text })
+    onSegment: (seg) => {
+      segments.push(seg)
+      // Relay each segment back so overlay can show partial progress
+      chrome.runtime.sendMessage({ type: 'ASR_SEGMENT', reelId, segment: seg })
+    },
+    onDone: (allSegments) => {
+      // Full transcript complete — send to content script for processing
+      chrome.runtime.sendMessage({ type: 'TRANSCRIPT_DONE', reelId, transcript: allSegments })
+      captures.delete(reelId)
     },
   })
 
-  audioCapture.start(stream, {
+  audio.start(stream, {
     chunkIntervalMs: 250,
     onChunk: (chunk) => deepgram.send(chunk),
   })
 }
 
-function stopCapture() {
-  audioCapture.stop()
-  deepgram.disconnect()
-  currentReelId = null
+function stopCapture(reelId: string) {
+  const capture = captures.get(reelId)
+  if (!capture) return
+  capture.deepgram.finish() // sends CloseStream → triggers onDone with full transcript
+  capture.audio.stop()
+  captures.delete(reelId)
 }
 
 async function getDeepgramKey(): Promise<string> {

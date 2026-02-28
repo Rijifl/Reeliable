@@ -4,14 +4,17 @@ import { resolve } from 'path'
 
 export default defineConfig({
   plugins: [react()],
+  publicDir: 'public', // manifest.json copied to dist/ automatically
   build: {
     outDir: 'dist',
+    emptyOutDir: true,
     rollupOptions: {
       input: {
         content: resolve(__dirname, 'src/content.ts'),
         background: resolve(__dirname, 'src/background.ts'),
-        popup: resolve(__dirname, 'src/popup.html'),
-        offscreen: resolve(__dirname, 'src/offscreen.html'),
+        offscreen: resolve(__dirname, 'offscreen.html'),
+        popup: resolve(__dirname, 'popup.html'),
+        panel: resolve(__dirname, 'panel.html'),
       },
       output: {
         entryFileNames: '[name].js',
