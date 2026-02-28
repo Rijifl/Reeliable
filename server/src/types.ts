@@ -1,43 +1,32 @@
-export interface TranscriptSegment {
-  text: string;
-  start_ms: number;
-  end_ms: number;
-}
-
-export interface ProcessReelRequest {
+export interface AnalyzeReelRequest {
   reelId: string;
   creator: string;
-  transcript: TranscriptSegment[];
+  videoUrl: string;
+  durationMs?: number;
 }
 
-export interface Claim {
+export interface TranscriptEntry {
+  text: string;
+  timestampMs: number;
+}
+
+export interface ExtractedClaim {
   id: string;
   text: string;
-  type: string; // treatment | statistic | mechanism | product
-  entities: string[];
-  timestamp_ms: number; // when in the reel this claim appears
+  reasoning: string;
+  authorSources: string[];
+  timestampMs: number;
 }
 
-export interface Source {
-  title: string;
-  url: string;
-  excerpt: string;
-  siteName: string;
+export interface Discrepancy {
+  description: string;
+  frameTimestampMs: number;
+  severity: 'low' | 'medium' | 'high';
 }
 
-export interface Verdict {
-  claimId: string;
-  status: 'supported' | 'contradicted' | 'unverified' | 'partially_true';
-  summary: string;
-  sources: Source[];
-}
-
-export interface CheckedClaim {
-  claim: Claim;
-  verdict: Verdict;
-}
-
-export interface ProcessReelResponse {
+export interface AnalyzeReelResponse {
   reelId: string;
-  checkedClaims: CheckedClaim[];
+  transcript: TranscriptEntry[];
+  claims: ExtractedClaim[];
+  discrepancies: Discrepancy[];
 }

@@ -1,11 +1,14 @@
 import dotenv from 'dotenv'
-dotenv.config({ path: new URL('../../.env', import.meta.url).pathname })
+import path from 'path'
+
+dotenv.config()
+dotenv.config({ path: path.resolve(process.cwd(), '..', '.env') })
 import Fastify from 'fastify'
-import { processReelRoute } from './process-reel.js'
+import { analyzeReelRoute } from './analyze-reel.js'
 
 const server = Fastify({ logger: true })
 
-server.register(processReelRoute)
+server.register(analyzeReelRoute)
 
 server.listen({ port: Number(process.env.PORT ?? 3001), host: '0.0.0.0' }, (err) => {
   if (err) {

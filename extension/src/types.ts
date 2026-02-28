@@ -1,43 +1,79 @@
-export interface TranscriptSegment {
-  text: string;
-  start_ms: number;
-  end_ms: number;
-}
-
-export interface ProcessReelRequest {
+export interface AnalyzeReelRequest {
   reelId: string;
   creator: string;
-  transcript: TranscriptSegment[];
+  videoUrl: string;
+  durationMs?: number;
 }
 
-export interface Claim {
+export interface TranscriptEntry {
+  text: string;
+  timestampMs: number;
+}
+
+export interface ExtractedClaim {
   id: string;
   text: string;
-  type: string;
-  entities: string[];
-  timestamp_ms: number;
+  reasoning: string;
+  authorSources: string[];
+  timestampMs: number;
 }
 
-export interface Source {
-  title: string;
-  url: string;
-  excerpt: string;
-  siteName: string;
+export interface Discrepancy {
+  description: string;
+  frameTimestampMs: number;
+  severity: 'low' | 'medium' | 'high';
 }
 
-export interface Verdict {
-  claimId: string;
-  status: 'supported' | 'contradicted' | 'unverified' | 'partially_true';
-  summary: string;
-  sources: Source[];
-}
-
-export interface CheckedClaim {
-  claim: Claim;
-  verdict: Verdict;
-}
-
-export interface ProcessReelResponse {
+export interface AnalyzeReelResponse {
   reelId: string;
-  checkedClaims: CheckedClaim[];
+  transcript: TranscriptEntry[];
+  claims: ExtractedClaim[];
+  discrepancies: Discrepancy[];
 }
+
+export interface ReelDetectedMessage {
+  type: 'REEL_DETECTED';
+  request: AnalyzeReelRequest;
+}
+
+export interface ReelChangedMessage {
+  type: 'REEL_CHANGED';
+  reelId: string;
+}
+
+export interface VideoTimeMessage {
+  type: 'VIDEO_TIME';
+  currentMs: number;
+}
+
+export interface AnalysisStartedMessage {
+  type: 'ANALYSIS_STARTED';
+  reelId: string;
+  creator: string;
+}
+
+export interface AnalysisCompleteMessage {
+  type: 'ANALYSIS_COMPLETE';
+  reelId: string;
+  result: AnalyzeReelResponse;
+}
+
+export interface AnalysisErrorMessage {
+  type: 'ANALYSIS_ERROR';
+  reelId: string;
+  message: string;
+}
+
+export interface SetEnabledMessage {
+  type: 'SET_ENABLED';
+  enabled: boolean;
+}
+
+export type ChromeMessage =
+  | ReelDetectedMessage
+  | ReelChangedMessage
+  | VideoTimeMessage
+  | AnalysisStartedMessage
+  | AnalysisCompleteMessage
+  | AnalysisErrorMessage
+  | SetEnabledMessage

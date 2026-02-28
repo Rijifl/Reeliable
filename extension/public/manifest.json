@@ -3,7 +3,7 @@
   "name": "ReelCheck",
   "version": "0.1.0",
   "description": "Real-time health & fitness claim fact-checking for Instagram Reels",
-  "permissions": ["activeTab", "scripting", "offscreen", "tabCapture", "storage", "sidePanel"],
+  "permissions": ["activeTab", "scripting", "storage", "sidePanel"],
   "host_permissions": ["https://www.instagram.com/*"],
   "background": {
     "service_worker": "background.js",
@@ -14,12 +14,6 @@
       "matches": ["https://www.instagram.com/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
-    },
-    {
-      "matches": ["https://www.instagram.com/*"],
-      "js": ["reel-extractor-main.js"],
-      "run_at": "document_idle",
-      "world": "MAIN"
     }
   ],
   "side_panel": {

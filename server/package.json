@@ -9,7 +9,6 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.32.0",
     "dotenv": "^17.3.1",
     "fastify": "^4.28.0"
   },

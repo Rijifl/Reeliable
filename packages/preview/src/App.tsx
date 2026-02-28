@@ -1,173 +1,317 @@
-import React, { useState, useEffect } from 'react'
-import { CheckedClaim, ProcessReelResponse } from '@ext/types'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { AnalyzeReelResponse, Discrepancy, ExtractedClaim, TranscriptEntry } from '@ext/types'
 
-// ── Mock data ─────────────────────────────────────────────────────────────────
-
-const MOCK_RESULT: ProcessReelResponse = {
-  reelId: 'mock123',
-  checkedClaims: [
+const MOCK_RESULT: AnalyzeReelResponse = {
+  reelId: 'mock-reel',
+  transcript: [
+    { text: 'Lose belly fat in 7 days with this method.', timestampMs: 1200 },
+    { text: 'This herbal shot boosts metabolism by 300 percent.', timestampMs: 5200 },
+    { text: 'Doctors do not want you to know this secret.', timestampMs: 9100 },
+    { text: 'Use code FLASH for my supplement stack.', timestampMs: 14600 },
+  ],
+  claims: [
     {
-      claim: { id: '1', text: "You can't build muscle in a calorie deficit", type: 'body_composition', entities: ['muscle', 'calorie deficit'], timestamp_ms: 4200 },
-      verdict: { claimId: '1', status: 'contradicted', summary: "Research shows beginners and returning lifters can build muscle while losing fat. It's harder for advanced athletes but not impossible.", sources: [{ title: 'Body Recomposition Research', url: '#', excerpt: '', siteName: 'examine.com' }] },
+      id: 'claim-1',
+      text: 'Herbal shot boosts metabolism by 300 percent.',
+      reasoning: 'This is a quantified physiological claim with a large effect size and no context about study design or population.',
+      authorSources: ['Mentions unnamed doctors', 'Promotional supplement code'],
+      timestampMs: 5200,
     },
     {
-      claim: { id: '2', text: 'Creatine causes hair loss', type: 'supplement', entities: ['creatine', 'hair loss'], timestamp_ms: 12500 },
-      verdict: { claimId: '2', status: 'partially_true', summary: 'One small study found creatine raised DHT levels linked to hair loss, but no study has directly shown it causes hair loss. Evidence is weak.', sources: [{ title: 'Creatine and DHT levels', url: '#', excerpt: '', siteName: 'pubmed.ncbi.nlm.nih.gov' }] },
+      id: 'claim-2',
+      text: 'Lose belly fat in 7 days.',
+      reasoning: 'A rapid body-composition promise is likely to be interpreted as guaranteed and universally applicable.',
+      authorSources: [],
+      timestampMs: 1200,
+    },
+  ],
+  discrepancies: [
+    {
+      description: 'Before/after body shots appear edited and not matched by equivalent lighting or angle.',
+      frameTimestampMs: 7000,
+      severity: 'medium',
     },
     {
-      claim: { id: '3', text: 'You need protein within 30 minutes of training', type: 'nutrition', entities: ['protein', 'anabolic window'], timestamp_ms: 27000 },
-      verdict: { claimId: '3', status: 'contradicted', summary: 'The "anabolic window" is much wider than 30 minutes. Total daily protein intake matters far more than exact timing.', sources: [{ title: 'Nutrient Timing Revisited', url: '#', excerpt: '', siteName: 'jissn.biomedcentral.com' }] },
-    },
-    {
-      claim: { id: '4', text: 'Cold plunges increase testosterone by 300%', type: 'health_outcome', entities: ['cold plunge', 'testosterone'], timestamp_ms: 41000 },
-      verdict: { claimId: '4', status: 'unverified', summary: 'No peer-reviewed study supports a 300% increase. Some studies show modest short-term hormonal changes but nothing close to this figure.', sources: [] },
+      description: 'Product shown on screen differs from label shown in text overlay.',
+      frameTimestampMs: 15000,
+      severity: 'high',
     },
   ],
 }
 
-// ── Colours ───────────────────────────────────────────────────────────────────
-
 const c = {
-  bg: '#0a0a0f', card: '#12121a', border: '#1e1e2e',
-  accent: '#6366f1', green: '#22c55e', yellow: '#eab308',
-  red: '#ef4444', muted: '#94a3b8', dim: '#64748b', text: '#e2e8f0',
+  bg: '#081018',
+  card: '#12202c',
+  border: '#1d3346',
+  accent: '#36b4f2',
+  amber: '#f59e0b',
+  red: '#ef4444',
+  text: '#dbeafe',
+  muted: '#91a8bd',
+  dim: '#5f768a',
 }
 
-const STATUS_COLOR: Record<string, string> = {
-  supported: c.green, contradicted: c.red, partially_true: c.yellow, unverified: c.muted,
-}
-const STATUS_LABEL: Record<string, string> = {
-  supported: '✓ Supported', contradicted: '✗ Contradicted',
-  partially_true: '~ Partially true', unverified: '? Unverified',
-}
-
-function formatMs(ms: number) {
-  const s = Math.floor(ms / 1000)
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+function formatMs(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const m = Math.floor(total / 60)
+  const s = String(total % 60).padStart(2, '0')
+  return `${m}:${s}`
 }
 
-// ── Card ──────────────────────────────────────────────────────────────────────
+function TranscriptSection({ transcript, currentMs }: { transcript: TranscriptEntry[]; currentMs: number }) {
+  const activeIndex = useMemo(() => {
+    if (transcript.length === 0) return -1
+    let best = 0
+    let delta = Number.POSITIVE_INFINITY
+    for (let i = 0; i < transcript.length; i++) {
+      const d = Math.abs(transcript[i].timestampMs - currentMs)
+      if (d < delta) {
+        delta = d
+        best = i
+      }
+    }
+    return best
+  }, [transcript, currentMs])
 
-function Card({ item, reached }: { item: CheckedClaim; reached: boolean }) {
-  const [expanded, setExpanded] = useState(false)
-  const { claim, verdict } = item
-  const color = STATUS_COLOR[verdict.status] ?? c.muted
+  const refs = useRef<Array<HTMLDivElement | null>>([])
+  useEffect(() => {
+    if (activeIndex < 0) return
+    refs.current[activeIndex]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [activeIndex])
 
   return (
-    <div style={{
-      background: c.card, border: `1.5px solid ${reached ? color : c.border}`,
-      borderRadius: 10, padding: '12px 14px',
-      opacity: reached ? 1 : 0.4, transition: 'all 0.3s ease',
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-        <span style={{ color, fontWeight: 700, fontSize: 12 }}>{STATUS_LABEL[verdict.status]}</span>
-        <span style={{ color: c.dim, fontSize: 11 }}>{formatMs(claim.timestamp_ms)}</span>
-      </div>
-      <div style={{ color: c.accent, fontSize: 12, fontStyle: 'italic', marginBottom: 6 }}>
-        "{claim.text}"
-      </div>
-      <div style={{ color: c.muted, fontSize: 13, lineHeight: 1.55 }}>{verdict.summary}</div>
-      {verdict.sources.length > 0 && (
-        <>
-          <button onClick={() => setExpanded(e => !e)} style={{ background: 'none', border: 'none', color: c.dim, cursor: 'pointer', fontSize: 11, marginTop: 8, padding: 0 }}>
-            {expanded ? '▲ hide sources' : `▼ ${verdict.sources.length} source(s)`}
-          </button>
-          {expanded && (
-            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {verdict.sources.map((s, i) => (
-                <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: c.accent, textDecoration: 'none' }}>
-                  {s.siteName} — {s.title}
-                </a>
-              ))}
+    <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <h3 style={{ color: c.accent, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+        Transcript
+      </h3>
+      <div style={{
+        minHeight: 200,
+        maxHeight: 320,
+        overflowY: 'auto',
+        border: `1px solid ${c.border}`,
+        borderRadius: 10,
+        background: '#0e1a25',
+        padding: 8,
+      }}>
+        {transcript.map((entry, index) => {
+          const active = index === activeIndex
+          return (
+            <div
+              key={`${entry.timestampMs}-${entry.text}-${index}`}
+              ref={(el) => { refs.current[index] = el }}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '44px 1fr',
+                gap: 8,
+                padding: '6px 4px',
+                borderRadius: 8,
+                background: active ? 'rgba(54,180,242,0.14)' : 'transparent',
+              }}
+            >
+              <span style={{ color: active ? c.accent : c.dim, fontSize: 11 }}>{formatMs(entry.timestampMs)}</span>
+              <span style={{ color: active ? c.text : c.muted, fontSize: 12, lineHeight: 1.5 }}>{entry.text}</span>
             </div>
-          )}
-        </>
-      )}
-    </div>
+          )
+        })}
+      </div>
+    </section>
   )
 }
 
-// ── Panel shell ───────────────────────────────────────────────────────────────
+function discrepancyColor(severity: Discrepancy['severity']) {
+  return severity === 'high' ? c.red : c.amber
+}
+
+function DiscrepanciesSection({ discrepancies, currentMs }: { discrepancies: Discrepancy[]; currentMs: number }) {
+  const visible = discrepancies.filter((d) => d.frameTimestampMs <= currentMs)
+  if (visible.length === 0) return null
+
+  return (
+    <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <h3 style={{ color: c.accent, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+        Discrepancies
+      </h3>
+      {visible.map((item, index) => {
+        const color = discrepancyColor(item.severity)
+        return (
+          <div key={`${item.frameTimestampMs}-${index}`} style={{
+            border: `1px solid ${color}`,
+            borderRadius: 10,
+            background: 'rgba(0,0,0,0.24)',
+            padding: 10,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+              <span style={{ color, fontWeight: 700, textTransform: 'uppercase' }}>{item.severity}</span>
+              <span style={{ color: c.dim }}>{formatMs(item.frameTimestampMs)}</span>
+            </div>
+            <div style={{ color: c.text, fontSize: 12, lineHeight: 1.5 }}>{item.description}</div>
+          </div>
+        )
+      })}
+    </section>
+  )
+}
+
+function ClaimsSection({ claims, currentMs }: { claims: ExtractedClaim[]; currentMs: number }) {
+  return (
+    <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <h3 style={{ color: c.accent, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+        Claims
+      </h3>
+      {claims.map((claim) => {
+        const reached = claim.timestampMs <= currentMs
+        return (
+          <article key={claim.id} style={{
+            border: `1px solid ${reached ? c.accent : c.border}`,
+            borderRadius: 10,
+            background: c.card,
+            padding: 10,
+            opacity: reached ? 1 : 0.42,
+            transition: 'opacity 0.25s ease, border-color 0.25s ease',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+              <div style={{ color: c.text, fontSize: 13, fontWeight: 600, lineHeight: 1.5 }}>{claim.text}</div>
+              <span style={{ color: c.dim, fontSize: 11 }}>{formatMs(claim.timestampMs)}</span>
+            </div>
+            <div style={{ color: c.muted, fontSize: 12, lineHeight: 1.55 }}>{claim.reasoning}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ color: c.dim, fontSize: 11, textTransform: 'uppercase' }}>Author Sources</span>
+              {claim.authorSources.length === 0 && <span style={{ color: c.dim, fontSize: 11 }}>No sources cited by creator.</span>}
+              {claim.authorSources.map((source, index) => (
+                <span key={`${source}-${index}`} style={{ color: c.text, fontSize: 11, lineHeight: 1.4 }}>
+                  - {source}
+                </span>
+              ))}
+            </div>
+          </article>
+        )
+      })}
+    </section>
+  )
+}
 
 function SidePanel({ currentMs }: { currentMs: number }) {
   return (
-    <div style={{ width: 340, minHeight: 700, background: c.bg, borderRadius: 12, border: `1px solid ${c.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <div style={{ padding: '14px 16px', borderBottom: `1px solid ${c.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ width: 8, height: 8, borderRadius: '50%', background: c.green, boxShadow: `0 0 6px ${c.green}` }} />
-        <span style={{ fontWeight: 800, fontSize: 15, letterSpacing: '-0.3px', color: c.text }}>ReelCheck</span>
+    <div style={{
+      width: 360,
+      minHeight: 720,
+      border: `1px solid ${c.border}`,
+      borderRadius: 12,
+      background: c.bg,
+      color: c.text,
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+    }}>
+      <header style={{
+        padding: '14px 16px',
+        borderBottom: `1px solid ${c.border}`,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+      }}>
+        <div style={{ width: 8, height: 8, borderRadius: '50%', background: c.accent }} />
+        <span style={{ fontWeight: 700, fontSize: 15 }}>ReelCheck VLM</span>
         <span style={{ color: c.dim, fontSize: 12, marginLeft: 'auto' }}>@fitnessguru</span>
-      </div>
-      <div style={{ flex: 1, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {MOCK_RESULT.checkedClaims.map(item => (
-          <Card key={item.claim.id} item={item} reached={item.claim.timestamp_ms <= currentMs} />
-        ))}
-      </div>
+      </header>
+      <main style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <TranscriptSection transcript={MOCK_RESULT.transcript} currentMs={currentMs} />
+        <DiscrepanciesSection discrepancies={MOCK_RESULT.discrepancies} currentMs={currentMs} />
+        <ClaimsSection claims={MOCK_RESULT.claims} currentMs={currentMs} />
+      </main>
     </div>
   )
 }
-
-// ── Preview page ──────────────────────────────────────────────────────────────
 
 export default function App() {
   const [currentMs, setCurrentMs] = useState(0)
   const [playing, setPlaying] = useState(false)
 
-  // Simulate video playback scrubbing through the reel
   useEffect(() => {
     if (!playing) return
-    const interval = setInterval(() => {
-      setCurrentMs(ms => {
-        const next = ms + 500
-        if (next >= 50000) { setPlaying(false); return 50000 }
+    const timer = setInterval(() => {
+      setCurrentMs((prev) => {
+        const next = prev + 500
+        if (next >= 24000) {
+          setPlaying(false)
+          return 24000
+        }
         return next
       })
     }, 500)
-    return () => clearInterval(interval)
+    return () => clearInterval(timer)
   }, [playing])
 
   return (
-    <div style={{ minHeight: '100vh', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 32, padding: 40, flexWrap: 'wrap' }}>
-
-      {/* Fake Instagram reel */}
-      <div style={{ width: 390, height: 700, background: '#111', borderRadius: 16, position: 'relative', overflow: 'hidden', border: '1px solid #222', flexShrink: 0 }}>
-        <div style={{ width: '100%', height: '100%', background: 'linear-gradient(160deg, #1a1a2e, #16213e, #0f3460)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff22', fontSize: 48 }}>▶</div>
-        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '0 12px 24px' }}>
-          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ color: '#fff', fontWeight: 700, fontSize: 14, marginBottom: 4 }}>@fitnessguru</div>
-              <div style={{ color: '#ffffffcc', fontSize: 12, maxWidth: 260, lineHeight: 1.4 }}>Everything you thought you knew about gains is WRONG 🔥 #fitness #gym #nutrition</div>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 20, alignItems: 'center', color: '#fff' }}>
-              <div style={{ fontSize: 24 }}>♡</div>
-              <div style={{ fontSize: 22 }}>💬</div>
-              <div style={{ fontSize: 22 }}>↗</div>
-            </div>
-          </div>
+    <div style={{
+      minHeight: '100vh',
+      background: '#04070c',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 28,
+      padding: 32,
+      flexWrap: 'wrap',
+    }}>
+      <div style={{
+        width: 390,
+        height: 720,
+        borderRadius: 16,
+        border: '1px solid #1f2937',
+        overflow: 'hidden',
+        background: 'linear-gradient(160deg, #1a1a2e, #0f172a, #0b1120)',
+        position: 'relative',
+      }}>
+        <div style={{ position: 'absolute', top: 12, left: 12, color: '#ffffff9a', fontSize: 11 }}>
+          {formatMs(currentMs)}
         </div>
-        {/* Fake playback time */}
-        <div style={{ position: 'absolute', top: 12, left: 12, color: '#ffffff88', fontSize: 11 }}>{formatMs(currentMs)}</div>
+        <div style={{ position: 'absolute', bottom: 24, left: 16, right: 16, color: '#d1d5db', fontSize: 12, lineHeight: 1.45 }}>
+          <div style={{ color: '#f9fafb', fontWeight: 700, marginBottom: 4 }}>@fitnessguru</div>
+          7-day fat loss trick they do not teach you.
+        </div>
       </div>
 
-      {/* Side panel */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <SidePanel currentMs={currentMs} />
-
-        {/* Playback controls */}
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => { setCurrentMs(0); setPlaying(false) }}
-            style={{ flex: 1, padding: '8px 0', background: '#1e1e2e', border: '1px solid #2e2e3e', borderRadius: 8, color: c.muted, cursor: 'pointer', fontSize: 12 }}>
-            ↺ Reset
+          <button
+            onClick={() => { setCurrentMs(0); setPlaying(false) }}
+            style={{
+              flex: 1,
+              background: '#1f2937',
+              border: '1px solid #374151',
+              color: '#d1d5db',
+              borderRadius: 8,
+              padding: '8px 10px',
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+          >
+            Reset
           </button>
-          <button onClick={() => setPlaying(p => !p)}
-            style={{ flex: 1, padding: '8px 0', background: playing ? '#1e1e2e' : c.accent, border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-            {playing ? '⏸ Pause' : '▶ Play'}
+          <button
+            onClick={() => setPlaying((p) => !p)}
+            style={{
+              flex: 1,
+              background: playing ? '#1f2937' : c.accent,
+              border: 'none',
+              color: '#f8fafc',
+              borderRadius: 8,
+              padding: '8px 10px',
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+          >
+            {playing ? 'Pause' : 'Play'}
           </button>
-        </div>
-        <div style={{ color: c.dim, fontSize: 11, textAlign: 'center' }}>
-          Cards appear as video reaches each timestamp
         </div>
       </div>
-
     </div>
   )
 }

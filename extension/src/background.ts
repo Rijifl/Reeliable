@@ -1,60 +1,85 @@
-// Service worker — opens side panel on Instagram, manages offscreen doc, relays messages
+import { analyzeReel } from './api'
+import { AnalyzeReelResponse, ChromeMessage, ReelDetectedMessage } from './types'
 
-let offscreenCreated = false
+const cache = new Map<string, AnalyzeReelResponse>()
+const activeRequests = new Map<string, AbortController>()
 
-// Open side panel automatically when user is on Instagram
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && tab.url?.includes('instagram.com')) {
     chrome.sidePanel.setOptions({ tabId, enabled: true })
   }
 })
 
-// Open side panel when extension icon is clicked
 chrome.action.onClicked.addListener((tab) => {
-  chrome.sidePanel.open({ tabId: tab.id! })
+  if (tab.id) chrome.sidePanel.open({ tabId: tab.id })
 })
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  switch (msg.type) {
-    case 'START_AUDIO':
-    case 'START_AUDIO_PREFETCH':
-      ensureOffscreenDocument().then(() => {
-        chrome.runtime.sendMessage({ type: 'OFFSCREEN_START', reelId: msg.reelId })
-      })
-      sendResponse({ ok: true })
-      break
-
-    case 'STOP_AUDIO':
-      chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP', reelId: msg.reelId })
-      sendResponse({ ok: true })
-      break
-
-    // Forward these to the side panel
-    case 'REEL_CHANGED':
-    case 'VIDEO_TIME':
-    case 'REEL_PROCESSING':
-    case 'REEL_CHECKED':
-    case 'ASR_SEGMENT':
-    case 'TRANSCRIPT_DONE':
-      chrome.runtime.sendMessage(msg)
-      // Also relay transcript events back to content script
-      if (msg.type === 'ASR_SEGMENT' || msg.type === 'TRANSCRIPT_DONE') {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-          if (tabs[0]?.id) chrome.tabs.sendMessage(tabs[0].id, msg)
-        })
-      }
-      break
+chrome.runtime.onMessage.addListener((message: ChromeMessage, sender, sendResponse) => {
+  if (message.type === 'REEL_DETECTED') {
+    void handleReelDetected(message, sender.tab?.id)
+    sendResponse({ ok: true })
+    return true
   }
 
-  return true
+  if (message.type === 'REEL_CHANGED') {
+    abortReel(message.reelId)
+    forward(message, sender.tab?.id)
+    sendResponse({ ok: true })
+    return true
+  }
+
+  if (message.type === 'VIDEO_TIME') {
+    chrome.runtime.sendMessage(message)
+    sendResponse({ ok: true })
+    return true
+  }
+
+  return false
 })
 
-async function ensureOffscreenDocument() {
-  if (offscreenCreated) return
-  await chrome.offscreen.createDocument({
-    url: 'offscreen.html',
-    reasons: [chrome.offscreen.Reason.USER_MEDIA],
-    justification: 'Capture tab audio for ASR transcription',
-  })
-  offscreenCreated = true
+async function handleReelDetected(message: ReelDetectedMessage, tabId?: number) {
+  const { request } = message
+  const { reelId, creator } = request
+
+  const cached = cache.get(reelId)
+  if (cached) {
+    forward({ type: 'ANALYSIS_COMPLETE', reelId, result: cached }, tabId)
+    return
+  }
+
+  forward({ type: 'ANALYSIS_STARTED', reelId, creator }, tabId)
+
+  abortReel(reelId)
+  const controller = new AbortController()
+  activeRequests.set(reelId, controller)
+
+  try {
+    const result = await analyzeReel(request, controller.signal)
+    if (controller.signal.aborted) return
+    cache.set(reelId, result)
+    forward({ type: 'ANALYSIS_COMPLETE', reelId, result }, tabId)
+  } catch (err) {
+    if (controller.signal.aborted) return
+    const messageText = err instanceof Error ? err.message : String(err)
+    forward({ type: 'ANALYSIS_ERROR', reelId, message: messageText }, tabId)
+  } finally {
+    const active = activeRequests.get(reelId)
+    if (active === controller) activeRequests.delete(reelId)
+  }
+}
+
+function abortReel(reelId: string) {
+  const controller = activeRequests.get(reelId)
+  if (!controller) return
+  controller.abort()
+  activeRequests.delete(reelId)
+}
+
+function forward(message: ChromeMessage, tabId?: number) {
+  chrome.runtime.sendMessage(message)
+  if (tabId) {
+    chrome.tabs.sendMessage(tabId, message).catch(() => {
+      // Ignore cases where tab context changed before message delivery.
+    })
+  }
 }
