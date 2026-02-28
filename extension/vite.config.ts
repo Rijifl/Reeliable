@@ -10,7 +10,6 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        content: resolve(__dirname, 'src/content.ts'),
         background: resolve(__dirname, 'src/background.ts'),
         offscreen: resolve(__dirname, 'offscreen.html'),
         popup: resolve(__dirname, 'popup.html'),
