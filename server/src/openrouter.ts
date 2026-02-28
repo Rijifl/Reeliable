@@ -1,57 +1,41 @@
 import crypto from 'crypto'
+import Anthropic from '@anthropic-ai/sdk'
 import { AnalyzeReelResponse, Discrepancy, ExtractedClaim, TranscriptEntry } from './types.js'
 import { ExtractedFrame } from './video-processor.js'
 import { VLM_SYSTEM_PROMPT, buildVlmUserPrompt } from './vlm-prompts.js'
-
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
-// Verified model id on OpenRouter model page.
-const MODEL = 'qwen/qwen3-vl-8b-instruct'
+import { getAnthropic } from './anthropic.js'
 
 type AnalysisBody = Omit<AnalyzeReelResponse, 'reelId'>
 
 export async function analyzeVideo(frames: ExtractedFrame[], creator: string): Promise<AnalysisBody> {
-  const apiKey = process.env.OPENROUTER_API_KEY
-  if (!apiKey) {
-    throw new Error('OPENROUTER_API_KEY is not set')
-  }
+  const content: Anthropic.MessageParam['content'] = []
 
-  const content: Array<Record<string, unknown>> = []
   for (const frame of frames) {
     content.push({ type: 'text', text: `[Frame at ${formatMs(frame.timestampMs)}]` })
     content.push({
-      type: 'image_url',
-      image_url: { url: `data:image/jpeg;base64,${frame.base64}` },
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/jpeg', data: frame.base64 },
     })
   }
   content.push({ type: 'text', text: buildVlmUserPrompt(creator) })
 
-  const res = await fetch(OPENROUTER_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      temperature: 0.3,
-      max_tokens: 4096,
-      messages: [
-        { role: 'system', content: VLM_SYSTEM_PROMPT },
-        { role: 'user', content },
-      ],
-    }),
+  const response = await getAnthropic().messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 4096,
+    system: VLM_SYSTEM_PROMPT,
+    messages: [{ role: 'user', content }],
   })
 
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`OpenRouter request failed (${res.status}): ${text}`)
-  }
+  const raw = response.content
+    .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+    .map((block) => block.text)
+    .join('')
 
-  const payload = (await res.json()) as {
-    choices?: Array<{ message?: { content?: string } }>
-  }
-  const raw = payload.choices?.[0]?.message?.content ?? ''
-  const cleaned = stripThinkTags(stripMarkdownCodeFence(raw))
+  console.log('\n── VLM raw response ──')
+  console.log(raw.slice(0, 1000))
+  console.log('──────────────────────\n')
+
+  const cleaned = stripMarkdownCodeFence(raw)
   const parsed = parseJsonObject(cleaned)
   return sanitizeAnalysisBody(parsed)
 }
@@ -125,10 +109,6 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function stripMarkdownCodeFence(text: string): string {
   return text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '')
-}
-
-function stripThinkTags(text: string): string {
-  return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
 }
 
 function parseJsonObject(text: string): unknown {

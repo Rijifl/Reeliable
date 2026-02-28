@@ -5,16 +5,27 @@ import { extractFramesFromVideoUrl } from './video-processor.js'
 export async function analyzeReel(request: AnalyzeReelRequest): Promise<AnalyzeReelResponse> {
   validateRequest(request)
 
+  console.log(`\n── analyzeReel: ${request.reelId} ──`)
+  console.log(`   videoUrl: ${request.videoUrl.slice(0, 80)}...`)
+
   const frames = await extractFramesFromVideoUrl(request.videoUrl, {
     intervalSeconds: 2,
     maxFrames: 15,
   })
+
+  console.log(`   frames extracted: ${frames.length}`)
 
   if (frames.length === 0) {
     throw new Error('No frames extracted from video URL')
   }
 
   const body = await analyzeVideo(frames, request.creator)
+
+  console.log(`   transcript lines: ${body.transcript.length}`)
+  console.log(`   claims: ${body.claims.length}`)
+  console.log(`   discrepancies: ${body.discrepancies.length}`)
+  console.log(`── done ──\n`)
+
   return {
     reelId: request.reelId,
     transcript: body.transcript,

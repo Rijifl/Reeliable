@@ -1,16 +1,42 @@
 /**
  * MAIN world entry point for the reel ID extractor.
  *
- * This script is declared with "world": "MAIN" in manifest.json so it runs
- * inside the page's JavaScript context alongside Instagram's React code.
- * That is required because the React fiber key (__reactFiber$...) is an
- * expando property written by the page's JS — it is invisible to scripts
- * running in Chrome's default isolated content-script world.
+ * Runs inside the page's JavaScript context so it can access React fiber
+ * properties (__reactFiber$...) that are invisible to isolated content scripts.
  *
- * chrome.* APIs are NOT available here. Results are reported via console.log
- * and can later be forwarded to the isolated world via window.postMessage.
+ * For every <video> it finds, it walks the fiber tree to get the reel shortcode,
+ * then posts a REEL_IDENTITY message to the isolated world via window.postMessage.
+ * chrome.* APIs are NOT available here.
  */
 
-import { startDebugPoller } from './reel-id-extractor'
+import { walkFiberTree } from './reel-id-extractor'
 
-startDebugPoller()
+const seen = new Set<string>()
+
+function scanAndPost() {
+  const videos = document.querySelectorAll<HTMLVideoElement>('video')
+  videos.forEach((video) => {
+    const videoUrl = video.currentSrc?.trim()
+    if (!videoUrl || videoUrl.startsWith('blob:')) return
+
+    const result = walkFiberTree(video)
+    if (!result) return
+
+    if (seen.has(result.shortcode)) return
+    seen.add(result.shortcode)
+
+    window.postMessage(
+      {
+        source: 'REELCHECK_MAIN',
+        type: 'REEL_IDENTITY',
+        shortcode: result.shortcode,
+        mediaId: result.mediaId,
+        videoUrl,
+      },
+      '*',
+    )
+  })
+}
+
+setInterval(scanAndPost, 2000)
+scanAndPost()

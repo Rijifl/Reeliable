@@ -1,6 +1,23 @@
 import { ReelCheckOverlay } from './overlay'
 import { AnalyzeReelRequest, ChromeMessage } from './types'
 
+// Receive reel identities posted by the MAIN world script and prefetch
+// any reel that isn't the one currently playing.
+window.addEventListener('message', (event) => {
+  if (event.source !== window) return
+  if (event.data?.source !== 'REELCHECK_MAIN' || event.data?.type !== 'REEL_IDENTITY') return
+
+  const { shortcode, videoUrl } = event.data as { shortcode: string; videoUrl: string }
+
+  // Already handling the active reel through the normal scan loop
+  if (currentReel?.reelId === shortcode) return
+
+  chrome.runtime.sendMessage({
+    type: 'REEL_PREFETCH',
+    request: { reelId: shortcode, creator: '', videoUrl },
+  })
+})
+
 const log = (...args: unknown[]) => console.log('[ReelCheck]', ...args)
 
 let enabled = true
@@ -36,17 +53,10 @@ function getMostVisibleVideo(): HTMLVideoElement | null {
   return best
 }
 
-function extractVideoUrl(video: HTMLVideoElement): string | null {
-  const source = video.querySelector<HTMLSourceElement>('source[src]')
-  const sourceUrl = source?.src?.trim()
-
-  const fromCurrentSrc = video.currentSrc?.trim()
-  if (fromCurrentSrc && !fromCurrentSrc.startsWith('blob:')) return fromCurrentSrc
-
-  const fromSrc = video.src?.trim()
-  if (fromSrc && !fromSrc.startsWith('blob:')) return fromSrc
-
-  return sourceUrl || fromCurrentSrc || fromSrc || null
+// Instagram uses MSE — video.currentSrc is always a blob: URL.
+// We use the canonical reel URL instead; the server downloads it via yt-dlp.
+function extractVideoUrl(reelId: string): string {
+  return `https://www.instagram.com/reels/${reelId}/`
 }
 
 function extractReelId(video: HTMLVideoElement): string | null {
@@ -92,8 +102,8 @@ function extractCreator(video: HTMLVideoElement): string {
 
 function buildAnalyzeRequest(video: HTMLVideoElement): AnalyzeReelRequest | null {
   const reelId = extractReelId(video)
-  const videoUrl = extractVideoUrl(video)
-  if (!reelId || !videoUrl) return null
+  if (!reelId) return null
+  const videoUrl = extractVideoUrl(reelId)
 
   const durationMs = Number.isFinite(video.duration) ? Math.max(0, Math.round(video.duration * 1000)) : undefined
   return {

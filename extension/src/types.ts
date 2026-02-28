@@ -36,6 +36,11 @@ export interface ReelDetectedMessage {
   request: AnalyzeReelRequest;
 }
 
+export interface ReelPrefetchMessage {
+  type: 'REEL_PREFETCH';
+  request: AnalyzeReelRequest;
+}
+
 export interface ReelChangedMessage {
   type: 'REEL_CHANGED';
   reelId: string;
@@ -71,6 +76,7 @@ export interface SetEnabledMessage {
 
 export type ChromeMessage =
   | ReelDetectedMessage
+  | ReelPrefetchMessage
   | ReelChangedMessage
   | VideoTimeMessage
   | AnalysisStartedMessage

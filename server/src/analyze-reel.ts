@@ -12,6 +12,8 @@ export async function analyzeReelRoute(fastify: FastifyInstance) {
       return reply.status(400).send({ error: 'reelId and videoUrl are required' })
     }
 
+    console.log(`\n→ POST /v1/analyze-reel  reelId=${body.reelId}  videoUrl=${body.videoUrl.slice(0, 60)}...`)
+
     const cached = reelCache.get(body.reelId)
     if (cached) {
       return reply.send(cached)
