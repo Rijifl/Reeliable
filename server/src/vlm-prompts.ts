@@ -27,8 +27,7 @@ Task:
 - Output each unique line once with its earliest frame timestamp.
 
 2) Claims:
-- Extract exactly 3 major factual claims when possible.
-- Always return at most 3 claims.
+- Extract up to 3 major factual claims from visible text.
 - Keep claim text close to verbatim.
 - Include reasoning for why each claim is notable.
 - Include any referenced sources/authorities in "authorSources" (empty array if none).

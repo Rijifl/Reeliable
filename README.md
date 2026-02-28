@@ -7,7 +7,7 @@ Chrome extension + Fastify server for Instagram Reel analysis using Qwen 3 VL th
 1. Content script detects the active Reel and reads the video CDN URL from the `<video>` element.
 2. Content script sends `REEL_DETECTED` with `{ reelId, creator, videoUrl, durationMs }` to the background service worker.
 3. Background calls `POST /v1/analyze-reel`.
-4. Server runs `ffmpeg` against the URL, extracts up to 15 frames (every 2s), sends frames to OpenRouter (`qwen/qwen3-vl-8b-thinking`), and returns:
+4. Server runs `ffmpeg` against the URL, extracts up to 15 frames (every 2s), sends frames to OpenRouter (`qwen/qwen3-vl-8b-instruct`), and returns:
    - `transcript[]`
    - `claims[]`
    - `discrepancies[]`

@@ -10,9 +10,5 @@
     "esModuleInterop": true,
     "resolveJsonModule": true
   },
-  "include": ["src"],
-  "exclude": [
-    "src/claim-checker.ts",
-    "src/claim-extractor.ts"
-  ]
+  "include": ["src"]
 }
