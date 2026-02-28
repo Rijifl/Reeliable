@@ -3,12 +3,18 @@ import { promisify } from 'util'
 import os from 'os'
 import path from 'path'
 import { mkdtemp, readdir, readFile, rm } from 'fs/promises'
+import { transcribeAudio } from './transcription.js'
 
 const execFileAsync = promisify(execFile)
 
 export interface ExtractedFrame {
   base64: string
   timestampMs: number
+}
+
+export interface ExtractResult {
+  frames: ExtractedFrame[]
+  whisperTranscript?: string
 }
 
 interface ExtractFramesOptions {
@@ -23,11 +29,12 @@ export async function extractFramesFromVideoUrl(
   mediaUrl: string,
   opts: ExtractFramesOptions = {},
   imageUrls?: string[],
-): Promise<ExtractedFrame[]> {
-  // Image post: fetch CDN URLs directly — no yt-dlp needed
+): Promise<ExtractResult> {
+  // Image post: fetch CDN URLs directly — no yt-dlp or audio needed
   if (imageUrls && imageUrls.length > 0) {
     console.log(`   fetching ${imageUrls.length} image(s) directly from CDN`)
-    return fetchImagesAsFrames(imageUrls.slice(0, opts.maxFrames ?? 15))
+    const frames = await fetchImagesAsFrames(imageUrls.slice(0, opts.maxFrames ?? 15))
+    return { frames }
   }
 
   const intervalSeconds = opts.intervalSeconds ?? 2
@@ -46,11 +53,17 @@ export async function extractFramesFromVideoUrl(
       .slice(0, maxFrames)
 
     if (videoFile) {
-      return await extractFramesFromVideo(path.join(tempDir, videoFile), tempDir, intervalSeconds, maxFrames)
+      const videoPath = path.join(tempDir, videoFile)
+      const [frames, whisperTranscript] = await Promise.all([
+        extractFramesFromVideo(videoPath, tempDir, intervalSeconds, maxFrames),
+        extractAndTranscribeAudio(videoPath, tempDir),
+      ])
+      return { frames, whisperTranscript: whisperTranscript || undefined }
     }
 
     if (imageFiles.length > 0) {
-      return await loadImagesAsFrames(imageFiles.map(f => path.join(tempDir, f)))
+      const frames = await loadImagesAsFrames(imageFiles.map(f => path.join(tempDir, f)))
+      return { frames }
     }
 
     throw new Error('yt-dlp downloaded no usable media files')
@@ -100,6 +113,32 @@ async function downloadMedia(url: string, tempDir: string): Promise<void> {
       { windowsHide: true, maxBuffer: 1024 * 1024 * 32 },
     )
   }
+}
+
+async function extractAndTranscribeAudio(videoFile: string, tempDir: string): Promise<string> {
+  if (!process.env.GROQ_API_KEY) return ''
+
+  const audioFile = path.join(tempDir, 'audio.mp3')
+  try {
+    await execFileAsync(
+      'ffmpeg',
+      [
+        '-hide_banner', '-loglevel', 'error',
+        '-y', '-i', videoFile,
+        '-vn', '-ar', '16000', '-ac', '1', '-c:a', 'libmp3lame', '-q:a', '4',
+        audioFile,
+      ],
+      { windowsHide: true, maxBuffer: 1024 * 1024 * 8 },
+    )
+  } catch {
+    console.warn('   audio extraction failed, skipping transcription')
+    return ''
+  }
+
+  console.log('   sending audio to Groq Whisper...')
+  const transcript = await transcribeAudio(audioFile)
+  if (transcript) console.log(`   whisper transcript: ${transcript.slice(0, 80)}...`)
+  return transcript
 }
 
 async function extractFramesFromVideo(

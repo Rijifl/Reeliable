@@ -8,19 +8,20 @@ export async function analyzeReel(request: AnalyzeReelRequest): Promise<AnalyzeR
   console.log(`\n── analyzeReel: ${request.reelId} ──`)
   console.log(`   videoUrl: ${request.videoUrl.slice(0, 80)}...`)
 
-  const frames = await extractFramesFromVideoUrl(
+  const { frames, whisperTranscript } = await extractFramesFromVideoUrl(
     request.videoUrl,
     { intervalSeconds: 2, maxFrames: 15 },
     request.imageUrls,
   )
 
   console.log(`   frames extracted: ${frames.length}`)
+  if (whisperTranscript) console.log(`   whisper transcript length: ${whisperTranscript.length} chars`)
 
   if (frames.length === 0) {
     throw new Error('No frames extracted from video URL')
   }
 
-  const body = await analyzeVideo(frames, request.creator, request.caption)
+  const body = await analyzeVideo(frames, request.creator, request.caption, whisperTranscript)
 
   console.log(`   transcript lines: ${body.transcript.length}`)
   console.log(`   claims: ${body.claims.length}`)
