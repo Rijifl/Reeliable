@@ -1,21 +1,28 @@
 import { ReelCheckOverlay } from './overlay'
 import { AnalyzeReelRequest, ChromeMessage } from './types'
 
-// Receive reel identities posted by the MAIN world script and prefetch
-// any reel that isn't the one currently playing.
+// Map from a video element's blob src → reel identity from the MAIN world.
+// blob: URLs are unique per video element so they work as a correlation key.
+const identityByBlobSrc = new Map<string, { reelId: string; videoUrl: string }>()
+
+// Receive reel identities from the MAIN world fiber-walker script.
 window.addEventListener('message', (event) => {
   if (event.source !== window) return
   if (event.data?.source !== 'REELCHECK_MAIN' || event.data?.type !== 'REEL_IDENTITY') return
 
-  const { shortcode, videoUrl } = event.data as { shortcode: string; videoUrl: string }
+  const { shortcode, videoUrl, blobSrc } = event.data as {
+    shortcode: string; videoUrl: string; blobSrc: string
+  }
 
-  // Already handling the active reel through the normal scan loop
-  if (currentReel?.reelId === shortcode) return
+  if (blobSrc) identityByBlobSrc.set(blobSrc, { reelId: shortcode, videoUrl })
 
-  chrome.runtime.sendMessage({
-    type: 'REEL_PREFETCH',
-    request: { reelId: shortcode, creator: '', videoUrl },
-  })
+  // Prefetch any reel that isn't already the active one
+  if (currentReel?.reelId !== shortcode) {
+    chrome.runtime.sendMessage({
+      type: 'REEL_PREFETCH',
+      request: { reelId: shortcode, creator: '', videoUrl },
+    }).catch(() => {})
+  }
 })
 
 const log = (...args: unknown[]) => console.log('[ReelCheck]', ...args)
@@ -59,16 +66,21 @@ function extractVideoUrl(reelId: string): string {
   return `https://www.instagram.com/reels/${reelId}/`
 }
 
-function extractReelId(video: HTMLVideoElement): string | null {
-  const fromPath = window.location.pathname.match(/\/reels?\/([^/?#]+)/i)
-  if (fromPath?.[1]) return fromPath[1]
+// Valid Instagram shortcode: base64url chars, 6-20 length
+const SHORTCODE_RE = /^[A-Za-z0-9_-]{6,20}$/
 
+function extractReelId(video: HTMLVideoElement): string | null {
+  // Match /reel/, /reels/, /p/ followed by a valid shortcode
+  const fromPath = window.location.pathname.match(/\/(?:reels?|p)\/([A-Za-z0-9_-]{6,20})\/?/)
+  if (fromPath?.[1] && SHORTCODE_RE.test(fromPath[1])) return fromPath[1]
+
+  // Walk up DOM looking for reel/post links
   let node: Element | null = video
   while (node && node !== document.body) {
-    const anchor = node.querySelector<HTMLAnchorElement>('a[href*="/reel/"], a[href*="/reels/"]')
+    const anchor = node.querySelector<HTMLAnchorElement>('a[href*="/reel/"], a[href*="/reels/"], a[href*="/p/"]')
     if (anchor) {
-      const m = anchor.href.match(/\/reels?\/([^/?#]+)/i)
-      if (m?.[1]) return m[1]
+      const m = anchor.href.match(/\/(?:reels?|p)\/([A-Za-z0-9_-]{6,20})\//)
+      if (m?.[1] && SHORTCODE_RE.test(m[1])) return m[1]
     }
     node = node.parentElement
   }
@@ -101,7 +113,15 @@ function extractCreator(video: HTMLVideoElement): string {
 }
 
 function buildAnalyzeRequest(video: HTMLVideoElement): AnalyzeReelRequest | null {
-  const reelId = extractReelId(video)
+  // Primary: URL/DOM-based extraction
+  let reelId = extractReelId(video)
+
+  // Fallback: fiber-walker identity received from MAIN world, matched by blob src
+  if (!reelId && video.currentSrc) {
+    const identity = identityByBlobSrc.get(video.currentSrc)
+    if (identity) reelId = identity.reelId
+  }
+
   if (!reelId) return null
   const videoUrl = extractVideoUrl(reelId)
 
@@ -112,6 +132,54 @@ function buildAnalyzeRequest(video: HTMLVideoElement): AnalyzeReelRequest | null
     videoUrl,
     durationMs,
   }
+}
+
+// Extract post images from the article DOM — CDN URLs are directly fetchable.
+// Filters out profile pictures (small avatars) by requiring naturalWidth > 200.
+function extractPostImageUrls(): string[] {
+  const article = document.querySelector<HTMLElement>('article')
+  if (!article) return []
+  return Array.from(article.querySelectorAll<HTMLImageElement>('img[src]'))
+    .filter(img => {
+      const src = img.src
+      if (!src || src.startsWith('blob:')) return false
+      if (!(src.includes('cdninstagram.com') || src.includes('fbcdn.net'))) return false
+      // Skip small avatars/icons
+      const w = img.naturalWidth || img.width
+      return w > 200
+    })
+    .map(img => img.src)
+    .filter((src, i, arr) => arr.indexOf(src) === i) // dedupe
+    .slice(0, 10)
+}
+
+// Extract the post caption from the h1 element Instagram uses.
+function extractPostCaption(): string {
+  const h1 = document.querySelector<HTMLElement>('article h1, h1._ap3a')
+  return h1?.textContent?.trim() ?? ''
+}
+
+// Detect image posts from the URL — no video element needed.
+// Handles /p/{shortcode}/ carousel and single-image posts.
+function buildAnalyzeRequestFromUrl(): AnalyzeReelRequest | null {
+  const m = window.location.pathname.match(/\/p\/([A-Za-z0-9_-]{6,20})\//)
+  if (!m?.[1]) return null
+  const reelId = m[1]
+  const imageUrls = extractPostImageUrls()
+  const caption = extractPostCaption()
+  return {
+    reelId,
+    creator: '',
+    videoUrl: `https://www.instagram.com/p/${reelId}/`,
+    imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
+    caption: caption || undefined,
+  }
+}
+
+// Find the main post article to anchor the overlay on image posts.
+function getPostArticleRect(): DOMRect | null {
+  const article = document.querySelector<HTMLElement>('article[role="presentation"], article')
+  return article ? article.getBoundingClientRect() : null
 }
 
 function startPositionTracking(video: HTMLVideoElement) {
@@ -147,14 +215,28 @@ function ensureOverlay() {
   return overlay
 }
 
+function hideOverlay() {
+  if (currentReel) {
+    chrome.runtime.sendMessage({ type: 'REEL_CHANGED', reelId: currentReel.reelId }).catch(() => {})
+  }
+  currentReel = null
+  activeVideo = null
+  stopPositionTracking()
+  overlay?.setIdle()
+}
+
 function scanForActiveReel() {
   if (!enabled) return
 
   const video = getMostVisibleVideo()
-  if (!video) return
 
-  const request = buildAnalyzeRequest(video)
-  if (!request) return
+  // Try video-based detection first, then fall back to image post URL detection
+  const request = (video ? buildAnalyzeRequest(video) : null) ?? buildAnalyzeRequestFromUrl()
+
+  if (!request) {
+    if (currentReel) hideOverlay()
+    return
+  }
 
   const isSameReel =
     currentReel?.reelId === request.reelId &&
@@ -163,17 +245,25 @@ function scanForActiveReel() {
   if (isSameReel) return
 
   if (currentReel && currentReel.reelId !== request.reelId) {
-    chrome.runtime.sendMessage({ type: 'REEL_CHANGED', reelId: currentReel.reelId })
+    chrome.runtime.sendMessage({ type: 'REEL_CHANGED', reelId: currentReel.reelId }).catch(() => {})
   }
 
   currentReel = { reelId: request.reelId, videoUrl: request.videoUrl }
-  activeVideo = video
-  startPositionTracking(video)
+  activeVideo = video ?? null
+
+  if (video) {
+    startPositionTracking(video)
+  } else {
+    // Image post: anchor overlay to the article element
+    stopPositionTracking()
+    const rect = getPostArticleRect()
+    if (rect) ensureOverlay().updatePosition(rect)
+  }
 
   const ui = ensureOverlay()
   ui.setProcessing(request.creator)
 
-  chrome.runtime.sendMessage({ type: 'REEL_DETECTED', request })
+  chrome.runtime.sendMessage({ type: 'REEL_DETECTED', request }).catch(() => {})
   log('REEL_DETECTED', request.reelId, request.videoUrl)
 }
 
@@ -184,7 +274,9 @@ let lastHref = window.location.href
 const hrefObserver = new MutationObserver(() => {
   if (window.location.href !== lastHref) {
     lastHref = window.location.href
-    scanForActiveReel()
+    // Hide immediately on navigation; scanForActiveReel will re-show if a reel is found
+    if (currentReel) hideOverlay()
+    setTimeout(scanForActiveReel, 400)
   }
 })
 hrefObserver.observe(document.body, { childList: true, subtree: true })

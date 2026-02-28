@@ -8,10 +8,11 @@ export async function analyzeReel(request: AnalyzeReelRequest): Promise<AnalyzeR
   console.log(`\n── analyzeReel: ${request.reelId} ──`)
   console.log(`   videoUrl: ${request.videoUrl.slice(0, 80)}...`)
 
-  const frames = await extractFramesFromVideoUrl(request.videoUrl, {
-    intervalSeconds: 2,
-    maxFrames: 15,
-  })
+  const frames = await extractFramesFromVideoUrl(
+    request.videoUrl,
+    { intervalSeconds: 2, maxFrames: 15 },
+    request.imageUrls,
+  )
 
   console.log(`   frames extracted: ${frames.length}`)
 
@@ -19,7 +20,7 @@ export async function analyzeReel(request: AnalyzeReelRequest): Promise<AnalyzeR
     throw new Error('No frames extracted from video URL')
   }
 
-  const body = await analyzeVideo(frames, request.creator)
+  const body = await analyzeVideo(frames, request.creator, request.caption)
 
   console.log(`   transcript lines: ${body.transcript.length}`)
   console.log(`   claims: ${body.claims.length}`)

@@ -3,6 +3,8 @@ export interface AnalyzeReelRequest {
   creator: string;
   videoUrl: string;
   durationMs?: number;
+  caption?: string;      // Post caption extracted from the page
+  imageUrls?: string[];  // Direct CDN image URLs for image-only posts
 }
 
 export interface TranscriptEntry {
