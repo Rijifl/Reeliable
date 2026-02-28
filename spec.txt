@@ -1,0 +1,375 @@
+# ReelCheck MVP Spec
+
+## What It Does
+
+A Chrome extension that reads Instagram Reel captions AND transcribes audio in real-time, checks health claims against a fact-check corpus, and overlays verdict cards on the reel.
+
+**What's NOT in the MVP:**
+- No OCR
+- No VLM / visual analysis
+- No cross-encoder reranking
+- No Redis caching layers (use in-memory maps for now)
+- No user accounts or feedback system
+
+---
+
+## Folder Structure
+
+```
+reelcheck/
+├── extension/                  # Chrome Extension (Manifest V3)
+│   ├── manifest.json
+│   ├── package.json
+│   ├── vite.config.ts
+│   └── src/
+│       ├── content.ts          # Content script — DOM observer, caption extraction, mounts overlay
+│       ├── background.ts       # Service worker — message relay, extension state
+│       ├── popup.html          # Popup shell
+│       ├── popup.ts            # On/off toggle logic
+│       ├── api.ts              # SSE client for backend
+│       ├── audio-capture.ts    # Captures audio from <video> via AudioContext + MediaStreamDestination
+│       ├── deepgram.ts         # Deepgram WebSocket streaming ASR client
+│       ├── offscreen.html      # Offscreen document shell (needed for audio in Manifest V3)
+│       ├── offscreen.ts        # Offscreen doc — runs MediaRecorder + Deepgram WebSocket
+│       ├── types.ts
+│       └── overlay/
+│           ├── index.tsx       # Injects React root via Shadow DOM
+│           ├── App.tsx         # Listens for verdicts, renders cards
+│           ├── FactCheckCard.tsx   # Verdict card (status, summary, sources)
+│           └── overlay.css
+│
+├── server/                     # Backend API
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── Dockerfile
+│   └── src/
+│       ├── index.ts            # Fastify server entry
+│       ├── check.ts            # POST /v1/check — main SSE endpoint
+│       ├── claim-extractor.ts  # Haiku: text → claims
+│       ├── retriever.ts        # Embed → Qdrant search → top sources
+│       ├── verdict-composer.ts # Haiku: claim + sources → verdict
+│       ├── anthropic.ts        # Anthropic SDK wrapper
+│       ├── qdrant.ts           # Qdrant client wrapper
+│       ├── embeddings.ts       # OpenAI embedding calls
+│       ├── prompts.ts          # All prompt templates
+│       └── types.ts
+│
+├── corpus/                     # Corpus Scraping + Indexing Pipeline
+│   ├── package.json
+│   ├── tsconfig.json
+│   └── src/
+│       ├── index.ts            # CLI entry — run one or all scrapers
+│       ├── scrapers/
+│       │   ├── base.ts         # Abstract BaseScraper class
+│       │   ├── pubmed.ts       # PubMed abstracts via Entrez API
+│       │   ├── who.ts          # WHO fact sheets
+│       │   ├── cdc.ts          # CDC publications
+│       │   ├── snopes.ts       # Snopes health claims
+│       │   ├── fda.ts          # FDA drug safety + approvals
+│       │   └── cochrane.ts     # Cochrane systematic review summaries
+│       ├── chunker.ts          # Split docs into ~200-token passages with overlap
+│       ├── embedder.ts         # Batch embed passages via OpenAI
+│       ├── uploader.ts         # Batch upsert vectors + payloads into Qdrant
+│       └── types.ts            # CorpusDocument, Passage types
+│
+├── scripts/
+│   └── seed.ts                 # Runs all scrapers → chunk → embed → upload (one command)
+│
+├── .env.example
+├── package.json                # Root scripts
+└── README.md
+```
+
+---
+
+## How It Works
+
+```
+1. User opens Instagram Reel
+2. Content script detects reel → extracts caption text immediately
+3. Simultaneously: audio capture starts → streams to Deepgram → partial transcripts arrive
+4. Both caption text and ASR sentences are sent to POST /v1/check as they're available
+5. Server:
+   a. Haiku extracts claims (or returns "no claims")
+   b. For each claim: embed → Qdrant search → top 3 sources
+   c. Haiku writes verdict grounded in sources
+   d. Streams results back via SSE
+6. Overlay shows verdict card on the reel
+```
+
+Caption text fires instantly (0ms). ASR sentences arrive every ~300-500ms. Both feed the same endpoint. The first claims usually come from captions; ASR catches anything spoken but not captioned.
+
+---
+
+## Audio Capture (Manifest V3)
+
+Content scripts can't use AudioContext on the page's media elements directly. The flow is:
+
+```
+content.ts
+  → detects <video> element
+  → sends message to background.ts
+  → background.ts creates offscreen document (offscreen.html/ts)
+  → offscreen.ts captures tab audio via chrome.tabCapture
+  → offscreen.ts runs MediaRecorder, sends 250ms chunks to Deepgram WebSocket
+  → Deepgram returns partial/final transcripts
+  → offscreen.ts relays final transcripts back to content.ts via chrome.runtime messages
+  → content.ts sends transcript text to backend via api.ts
+```
+
+Key details:
+- Use `chrome.tabCapture.capture()` in the offscreen document to get the audio stream
+- Deepgram model: `nova-2-medical` (optimized for medical terminology)
+- Only send `is_final: true` transcript results to the backend (skip partials to reduce noise)
+- Stop capture when reel changes or user navigates away
+
+---
+
+## Types
+
+```typescript
+// Shared across extension and server
+
+export interface CheckRequest {
+  reelId: string;
+  text: string;
+  source: 'caption' | 'asr';
+  creator: string;
+}
+
+export interface Claim {
+  id: string;
+  text: string;
+  type: string;       // treatment | statistic | mechanism | product
+  entities: string[];
+}
+
+export interface Source {
+  title: string;
+  url: string;
+  excerpt: string;
+  sourceName: string;  // "WHO", "Cochrane", "FDA"
+}
+
+export interface Verdict {
+  claimId: string;
+  status: 'supported' | 'contradicted' | 'unverified' | 'partially_true';
+  summary: string;
+  sources: Source[];
+}
+
+export type SSEEvent =
+  | { type: 'claim_detected'; claim: Claim }
+  | { type: 'verdict'; verdict: Verdict }
+  | { type: 'no_claims' }
+  | { type: 'error'; message: string };
+```
+
+---
+
+## The One Endpoint
+
+### `POST /v1/check`
+
+**Request:**
+```json
+{
+  "reelId": "abc123",
+  "text": "Studies prove vitamin D cures cancer",
+  "source": "caption",
+  "creator": "@healthguru"
+}
+```
+
+**Response:** SSE stream (`text/event-stream`)
+```
+data: {"type":"claim_detected","claim":{"id":"c1","text":"vitamin D cures cancer","type":"treatment","entities":["vitamin D","cancer"]}}
+
+data: {"type":"verdict","verdict":{"claimId":"c1","status":"contradicted","summary":"No clinical trials have shown vitamin D cures cancer. Some studies suggest a supportive role in prevention, but it is not an established treatment.","sources":[{"title":"Vitamin D and Cancer Prevention","url":"https://www.cancer.gov/...","excerpt":"...","sourceName":"National Cancer Institute"}]}}
+```
+
+The extension calls this endpoint once with caption text on reel load, then again for each finalized ASR sentence. The server deduplicates — if the ASR sentence substantially matches an already-checked caption claim, it skips it.
+
+---
+
+## Corpus Scrapers
+
+Each scraper extends `BaseScraper` and implements:
+
+```typescript
+abstract class BaseScraper {
+  abstract name: string;
+  abstract fetch(): Promise<RawDocument[]>;     // pull from API or scrape
+  abstract parse(raw: RawDocument[]): CorpusDocument[];  // normalize to common format
+}
+```
+
+### Sources
+
+| Scraper | What it pulls | How | Approximate volume |
+|---|---|---|---|
+| `pubmed.ts` | Biomedical abstracts | NCBI Entrez API (efetch/esearch) | Start with top ~5K health-tagged abstracts |
+| `who.ts` | Fact sheets + disease pages | Scrape WHO fact sheet index | ~400 documents |
+| `cdc.ts` | Health topics + MMWR highlights | Scrape CDC A-Z index | ~500 documents |
+| `snopes.ts` | Pre-checked health claims + verdicts | Scrape Snopes health category | ~2K claims |
+| `fda.ts` | Drug safety alerts + consumer updates | Scrape FDA consumer updates | ~300 documents |
+| `cochrane.ts` | Systematic review plain-language summaries | Scrape Cochrane Library | ~1K summaries |
+
+### Pipeline: scrape → chunk → embed → upload
+
+```
+1. Scraper.fetch()       → raw HTML/JSON
+2. Scraper.parse()       → CorpusDocument[] (clean text + metadata)
+3. chunker.ts            → Passage[] (split into ~200-token chunks, 30-token overlap)
+4. embedder.ts           → batch embed via OpenAI text-embedding-3-small (batches of 100)
+5. uploader.ts           → upsert vectors + payloads into Qdrant collection "medical_facts"
+```
+
+### Corpus types
+
+```typescript
+export interface CorpusDocument {
+  id: string;
+  text: string;
+  sourceName: string;
+  sourceUrl: string;
+  category: string;     // oncology, nutrition, infectious_disease, etc.
+}
+
+export interface Passage {
+  id: string;
+  text: string;
+  documentId: string;
+  sourceName: string;
+  sourceUrl: string;
+  category: string;
+}
+```
+
+### Qdrant collection config
+
+```
+Collection: medical_facts
+Vector size: 1536 (text-embedding-3-small)
+Distance: Cosine
+Payload indexes: sourceName, category
+```
+
+---
+
+## Prompts
+
+### Claim Extractor (Haiku)
+
+```
+System:
+You detect health and medical claims in social media content.
+Given text from a video caption or transcript, extract verifiable
+factual health claims.
+
+Return a JSON array:
+[{ "claim": "short factual claim", "type": "treatment|statistic|mechanism|product", "entities": ["entity1"] }]
+
+Return [] if there are no verifiable health claims.
+Only extract claims checkable against medical literature.
+Opinions, anecdotes, and personal experiences are NOT claims.
+
+User:
+Text: "{text}"
+Source: {caption|asr}
+Creator: {creator}
+```
+
+### Verdict Composer (Haiku)
+
+```
+System:
+You are a medical fact-checker. Given a CLAIM and EVIDENCE from
+medical sources, write a short verdict.
+
+Return JSON:
+{
+  "status": "supported" | "contradicted" | "unverified" | "partially_true",
+  "summary": "1-2 sentences in plain language explaining the verdict"
+}
+
+Rules:
+- ONLY use the provided evidence. Never invent sources or facts.
+- If the evidence doesn't clearly address the claim, return "unverified".
+- Write for a general audience. No jargon.
+
+User:
+CLAIM: "{claim_text}"
+
+EVIDENCE:
+1. [{source_name}] {passage_text}
+2. [{source_name}] {passage_text}
+3. [{source_name}] {passage_text}
+```
+
+---
+
+## Env Vars
+
+```env
+# Anthropic — claim extraction + verdict synthesis
+ANTHROPIC_API_KEY=sk-ant-...
+
+# OpenAI — embeddings only
+OPENAI_API_KEY=sk-...
+
+# Deepgram — streaming audio transcription
+DEEPGRAM_API_KEY=...
+
+# Qdrant — vector database
+QDRANT_URL=http://localhost:6333
+QDRANT_COLLECTION=medical_facts
+
+# Server
+PORT=3001
+```
+
+5 services: Anthropic, OpenAI, Deepgram, Qdrant (local Docker), Fastify.
+
+---
+
+## Run It
+
+```bash
+# 1. Start Qdrant
+docker run -p 6333:6333 qdrant/qdrant
+
+# 2. Scrape + index the corpus (takes a few minutes)
+cd corpus && npx tsx src/index.ts --all
+
+# 3. Start the server
+cd server && npm run dev
+
+# 4. Build the extension
+cd extension && npm run build
+
+# 5. Load unpacked extension in chrome://extensions (enable Developer Mode)
+```
+
+---
+
+## MVP Scope
+
+| Feature | In MVP? |
+|---|---|
+| Read reel captions from DOM | ✅ |
+| Stream audio → Deepgram ASR | ✅ |
+| Extract claims via Haiku | ✅ |
+| Search corpus via Qdrant | ✅ |
+| Generate verdict via Haiku | ✅ |
+| Stream results via SSE | ✅ |
+| Overlay verdict card on reel | ✅ |
+| On/off toggle | ✅ |
+| Corpus scrapers (6 sources) | ✅ |
+| Chunking + embedding pipeline | ✅ |
+| OCR on-screen text | ❌ Later |
+| VLM visual analysis | ❌ Later |
+| Redis claim/reel caching | ❌ Later |
+| Cross-encoder reranking | ❌ Later |
+| User feedback system | ❌ Later |
+| Scheduled corpus updates (cron) | ❌ Later |

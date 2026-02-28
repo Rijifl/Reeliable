@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "ReelCheck",
+  "version": "0.1.0",
+  "description": "Real-time medical claim fact-checking for Instagram Reels",
+  "permissions": ["activeTab", "scripting", "offscreen", "tabCapture", "storage"],
+  "host_permissions": ["https://www.instagram.com/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.instagram.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "ReelCheck"
+  }
+}
