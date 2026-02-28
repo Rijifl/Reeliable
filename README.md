@@ -1,4 +1,4 @@
-# ReelCheck VLM
+# Reeliable VLM
 
 Chrome extension + Fastify server for Instagram Reel analysis using Qwen 3 VL through OpenRouter.
 
