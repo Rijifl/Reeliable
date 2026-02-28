@@ -5,6 +5,8 @@ import path from 'path'
 import { mkdtemp, readdir, readFile, rm } from 'fs/promises'
 
 const execFileAsync = promisify(execFile)
+const YTDLP_BIN = process.env.YTDLP_PATH?.trim() || 'yt-dlp'
+const FFMPEG_BIN = process.env.FFMPEG_PATH?.trim() || 'ffmpeg'
 
 export interface ExtractedFrame {
   base64: string
@@ -30,23 +32,12 @@ export async function extractFramesFromVideoUrl(
     // yt-dlp downloads the video (handles Instagram auth/MSE/HLS automatically)
     // --cookies-from-browser chrome passes your logged-in session to yt-dlp
     console.log(`   yt-dlp downloading: ${videoUrl.slice(0, 80)}`)
-    await execFileAsync(
-      'yt-dlp',
-      [
-        '--quiet',
-        '--no-warnings',
-        '--cookies-from-browser', 'chrome',
-        '-f', 'mp4/best[ext=mp4]/best',
-        '-o', videoFile,
-        videoUrl,
-      ],
-      { windowsHide: true, maxBuffer: 1024 * 1024 * 64 },
-    )
+    await downloadWithYtDlp(videoUrl, videoFile)
 
     // ffmpeg extracts frames from the downloaded file
     const vf = `fps=1/${intervalSeconds},scale='min(640,iw)':-2`
     await execFileAsync(
-      'ffmpeg',
+      FFMPEG_BIN,
       [
         '-hide_banner',
         '-loglevel', 'error',
@@ -77,14 +68,48 @@ export async function extractFramesFromVideoUrl(
     return frames
   } catch (err) {
     const message = String(err)
-    if (message.includes('yt-dlp') && message.includes('not found')) {
+    if (message.includes(YTDLP_BIN) && message.includes('not found')) {
       throw new Error('yt-dlp is required on the server PATH')
     }
-    if (message.includes('ffmpeg') && message.includes('not found')) {
+    if (message.includes(FFMPEG_BIN) && message.includes('not found')) {
       throw new Error('ffmpeg is required on the server PATH')
     }
     throw err
   } finally {
     await rm(tempDir, { recursive: true, force: true })
+  }
+}
+
+async function downloadWithYtDlp(videoUrl: string, videoFile: string): Promise<void> {
+  const commonArgs = [
+    '--quiet',
+    '--no-warnings',
+    '-f', 'mp4/best[ext=mp4]/best',
+    '-o', videoFile,
+    videoUrl,
+  ]
+
+  try {
+    await execFileAsync(
+      YTDLP_BIN,
+      ['--cookies-from-browser', 'chrome', ...commonArgs],
+      { windowsHide: true, maxBuffer: 1024 * 1024 * 64 },
+    )
+  } catch (err) {
+    const message = String(err)
+    const cookieReadFailed =
+      message.includes('Could not copy Chrome cookie database') ||
+      message.includes('cookies-from-browser')
+
+    if (!cookieReadFailed) {
+      throw err
+    }
+
+    // Fallback for environments where browser cookie extraction is unavailable.
+    await execFileAsync(
+      YTDLP_BIN,
+      commonArgs,
+      { windowsHide: true, maxBuffer: 1024 * 1024 * 64 },
+    )
   }
 }

@@ -1,35 +1,80 @@
 import crypto from 'crypto'
-import Anthropic from '@anthropic-ai/sdk'
 import { AnalyzeReelResponse, Discrepancy, ExtractedClaim, TranscriptEntry } from './types.js'
 import { ExtractedFrame } from './video-processor.js'
 import { VLM_SYSTEM_PROMPT, buildVlmUserPrompt } from './vlm-prompts.js'
-import { getAnthropic } from './anthropic.js'
 
 type AnalysisBody = Omit<AnalyzeReelResponse, 'reelId'>
 
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
+const DEFAULT_VLM_MODEL = process.env.OPENROUTER_VLM_MODEL?.trim() || 'qwen/qwen3-vl-8b-thinking'
+
+type OpenRouterContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
+
+type OpenRouterMessage =
+  | { role: 'system'; content: string }
+  | { role: 'user'; content: OpenRouterContentPart[] }
+
+type OpenRouterResponse = {
+  choices?: Array<{
+    message?: {
+      content?: string | Array<{ type?: string; text?: string }>
+    }
+  }>
+  error?: { message?: string }
+}
+
 export async function analyzeVideo(frames: ExtractedFrame[], creator: string): Promise<AnalysisBody> {
-  const content: Anthropic.MessageParam['content'] = []
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim()
+  if (!apiKey) {
+    throw new Error('OPENROUTER_API_KEY is required')
+  }
+
+  const content: OpenRouterContentPart[] = []
 
   for (const frame of frames) {
     content.push({ type: 'text', text: `[Frame at ${formatMs(frame.timestampMs)}]` })
     content.push({
-      type: 'image',
-      source: { type: 'base64', media_type: 'image/jpeg', data: frame.base64 },
+      type: 'image_url',
+      image_url: { url: `data:image/jpeg;base64,${frame.base64}` },
     })
   }
   content.push({ type: 'text', text: buildVlmUserPrompt(creator) })
 
-  const response = await getAnthropic().messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 4096,
-    system: VLM_SYSTEM_PROMPT,
-    messages: [{ role: 'user', content }],
+  const messages: OpenRouterMessage[] = [
+    { role: 'system', content: VLM_SYSTEM_PROMPT },
+    { role: 'user', content },
+  ]
+
+  const response = await fetch(OPENROUTER_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://localhost',
+      'X-Title': 'ReelCheck VLM',
+    },
+    body: JSON.stringify({
+      model: DEFAULT_VLM_MODEL,
+      max_tokens: 4096,
+      temperature: 0.1,
+      messages,
+    }),
   })
 
-  const raw = response.content
-    .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-    .map((block) => block.text)
-    .join('')
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(`OpenRouter request failed (${response.status}): ${errorText.slice(0, 400)}`)
+  }
+
+  const payload = (await response.json()) as OpenRouterResponse
+  if (payload.error?.message) {
+    throw new Error(`OpenRouter error: ${payload.error.message}`)
+  }
+
+  const raw = extractOpenRouterText(payload)
+  if (!raw.trim()) {
+    throw new Error('OpenRouter returned an empty response')
+  }
 
   console.log('\n── VLM raw response ──')
   console.log(raw.slice(0, 1000))
@@ -77,6 +122,7 @@ function sanitizeClaims(value: unknown): ExtractedClaim[] {
       return { id, text, reasoning, authorSources, timestampMs }
     })
     .filter((item): item is ExtractedClaim => item !== null)
+    .slice(0, 3)
 }
 
 function sanitizeDiscrepancies(value: unknown): Discrepancy[] {
@@ -139,4 +185,18 @@ function formatMs(ms: number): string {
   const m = Math.floor(total / 60)
   const s = String(total % 60).padStart(2, '0')
   return `${m}:${s}`
+}
+
+function extractOpenRouterText(payload: OpenRouterResponse): string {
+  const content = payload.choices?.[0]?.message?.content
+  if (typeof content === 'string') {
+    return content
+  }
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => (typeof part.text === 'string' ? part.text : ''))
+      .join('')
+      .trim()
+  }
+  throw new Error('OpenRouter response did not contain text content')
 }
