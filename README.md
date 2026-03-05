@@ -1,68 +1,102 @@
-# Reeliable VLM
+# Reeliable
 
-Chrome extension + Fastify server for Instagram Reel analysis using Qwen 3 VL through OpenRouter.
+A Chrome extension that fact-checks Instagram Reels in real time using multimodal AI. It extracts video frames, transcribes audio, identifies health claims, and surfaces discrepancies — all while you scroll.
 
-## Flow
+## How It Works
 
-1. Content script detects the active Reel and reads the video CDN URL from the `<video>` element.
-2. Content script sends `REEL_DETECTED` with `{ reelId, creator, videoUrl, durationMs }` to the background service worker.
-3. Background calls `POST /v1/analyze-reel`.
-4. Server runs `ffmpeg` against the URL, extracts up to 15 frames (every 2s), sends frames to OpenRouter (`qwen/qwen3-vl-8b-instruct`), and returns:
-   - `transcript[]`
-   - `claims[]`
-   - `discrepancies[]`
-5. Background caches results by `reelId` and broadcasts `ANALYSIS_COMPLETE` to content + side panel.
-6. Overlay and side panel render timestamp-synced transcript, discrepancy alerts, and claim cards.
+1. The content script detects the active Reel and reads the video URL from the `<video>` element.
+2. It sends `REEL_DETECTED` (with `reelId`, `creator`, `videoUrl`, `durationMs`) to the background service worker.
+3. The background calls `POST /v1/analyze-reel` on the local server.
+4. The server uses `yt-dlp` to download the video, `ffmpeg` to extract up to 15 frames (every 2s), and optionally transcribes the audio via Groq Whisper. All of this is sent to Claude (vision) which returns:
+   - `transcript[]` — timestamped speech
+   - `claims[]` — notable health/factual claims with reasoning
+   - `discrepancies[]` — mismatches between visuals, text, and audio
+5. Results are cached by `reelId` and broadcast to the content script and side panel.
+6. The overlay and side panel render timestamp-synced transcripts, claim cards, and discrepancy alerts.
+
+## Tech Stack
+
+- **Extension**: Chrome MV3, React, TypeScript, Vite
+- **Server**: Fastify, TypeScript, tsx
+- **AI**: Claude Haiku (vision + analysis via Anthropic SDK), Groq Whisper (audio transcription, optional)
+- **Media**: yt-dlp (download), ffmpeg (frame extraction + audio)
+- **UI Preview**: Vite + React standalone app with mock data
 
 ## Packages
 
-- `extension/`: MV3 extension (content script, background worker, overlay UI, side panel UI)
-- `server/`: Fastify API (`/v1/analyze-reel`) + ffmpeg frame extraction + OpenRouter client
-- `packages/preview/`: UI preview app with mock `AnalyzeReelResponse` data
+- `extension/` — MV3 extension (content script, background worker, overlay UI, side panel UI)
+- `server/` — Fastify API (`/v1/analyze-reel`) + ffmpeg frame extraction + Claude vision client
+- `packages/preview/` — Standalone UI preview with mock `AnalyzeReelResponse` data
 
 ## Requirements
 
 - Node.js 20+
 - pnpm 9+
-- `ffmpeg` available on system `PATH`
-- `OPENROUTER_API_KEY`
+- `ffmpeg` on system `PATH` — [install guide](https://ffmpeg.org/download.html)
+- `yt-dlp` on system `PATH` — [install guide](https://github.com/yt-dlp/yt-dlp#installation)
+- An `ANTHROPIC_API_KEY` (required)
+- A `GROQ_API_KEY` (optional — enables audio transcription)
+
+**Install system tools (macOS):**
+```bash
+brew install ffmpeg yt-dlp
+```
 
 ## Setup
 
-1. Install deps:
+**1. Install dependencies:**
 
 ```bash
 pnpm install
 ```
 
-2. Configure env:
+**2. Configure environment:**
 
 ```bash
 cp .env.example .env
 ```
 
-Set:
+Edit `.env` and fill in your keys:
 
 ```env
-OPENROUTER_API_KEY=...
+ANTHROPIC_API_KEY=sk-ant-...   # Required — Claude vision analysis
+GROQ_API_KEY=gsk_...           # Optional — audio transcription via Whisper
 PORT=3001
 ```
 
-3. Start server:
+**3. Start the server:**
 
 ```bash
 cd server && pnpm dev
 ```
 
-4. Build extension:
+**4. Build the extension:**
 
 ```bash
 cd extension && pnpm build
 ```
 
-5. Load `extension/dist` in `chrome://extensions` (Developer Mode -> Load unpacked).
+**5. Load in Chrome:**
 
-## API
+- Go to `chrome://extensions`
+- Enable **Developer Mode** (top right)
+- Click **Load unpacked** and select the `extension/dist` folder
+
+**6. Use it:**
+
+Open Instagram in Chrome and navigate to any Reel. The side panel will open automatically and populate with the analysis.
+
+## UI Preview (no extension needed)
+
+To see the UI with mock data:
+
+```bash
+cd packages/preview && pnpm dev
+```
+
+Open `http://localhost:5173` in your browser.
+
+## API Reference
 
 ### `POST /v1/analyze-reel`
 
@@ -72,7 +106,7 @@ Request:
 {
   "reelId": "abc123",
   "creator": "@creator",
-  "videoUrl": "https://instagram.cdn/...mp4",
+  "videoUrl": "https://instagram.com/reel/...",
   "durationMs": 28400
 }
 ```
