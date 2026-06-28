@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "ReelCheck",
+  "name": "Reeliable",
   "version": "0.1.0",
   "description": "Real-time health & fitness claim fact-checking for Instagram Reels",
   "permissions": ["activeTab", "scripting", "storage", "sidePanel"],
@@ -26,6 +26,6 @@
     "default_path": "panel.html"
   },
   "action": {
-    "default_title": "ReelCheck"
+    "default_title": "Reeliable"
   }
 }

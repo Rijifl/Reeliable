@@ -1,0 +1,9 @@
+{
+  "name": "reeliable",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reeliable — real-time VLM fact-checking for Instagram Reels (pnpm workspace root)",
+  "scripts": {
+    "build": "pnpm -r build"
+  }
+}

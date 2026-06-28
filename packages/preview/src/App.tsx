@@ -217,7 +217,7 @@ function SidePanel({ currentMs }: { currentMs: number }) {
         gap: 8,
       }}>
         <div style={{ width: 8, height: 8, borderRadius: '50%', background: c.accent }} />
-        <span style={{ fontWeight: 700, fontSize: 15 }}>ReelCheck VLM</span>
+        <span style={{ fontWeight: 700, fontSize: 15 }}>Reeli<span style={{ color: c.accent }}>able</span></span>
         <span style={{ color: c.dim, fontSize: 12, marginLeft: 'auto' }}>@fitnessguru</span>
       </header>
       <main style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
