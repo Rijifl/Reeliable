@@ -1,8 +1,19 @@
 import { FastifyInstance } from 'fastify'
 import { AnalyzeReelRequest, AnalyzeReelResponse } from './types.js'
 import { analyzeReel } from './video-analyzer.js'
+import { ValidationError } from './errors.js'
 
+const MAX_CACHE = 100
 const reelCache = new Map<string, AnalyzeReelResponse>()
+
+function cacheReel(reelId: string, result: AnalyzeReelResponse) {
+  reelCache.set(reelId, result)
+  // Bound the cache — evict the oldest entry (Map preserves insertion order).
+  if (reelCache.size > MAX_CACHE) {
+    const oldest = reelCache.keys().next().value
+    if (oldest !== undefined) reelCache.delete(oldest)
+  }
+}
 
 export async function analyzeReelRoute(fastify: FastifyInstance) {
   fastify.post<{ Body: AnalyzeReelRequest }>('/v1/analyze-reel', async (req, reply) => {
@@ -21,26 +32,16 @@ export async function analyzeReelRoute(fastify: FastifyInstance) {
 
     try {
       const result = await analyzeReel(body)
-      reelCache.set(body.reelId, result)
+      cacheReel(body.reelId, result)
       return reply.send(result)
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      if (
-        message.includes('required') ||
-        message.includes('valid URL') ||
-        message.includes('No frames extracted')
-      ) {
-        return reply.status(400).send({ error: message })
+      if (err instanceof ValidationError) {
+        return reply.status(400).send({ error: err.message })
       }
+      req.log.error(err)
+      const message = err instanceof Error ? err.message : String(err)
       return reply.status(500).send({ error: message })
     }
   })
 
-  fastify.get<{ Params: { reelId: string } }>('/v1/reel/:reelId', async (req, reply) => {
-    const cached = reelCache.get(req.params.reelId)
-    if (!cached) {
-      return reply.status(404).send({ cached: false })
-    }
-    return reply.send({ cached: true, ...cached })
-  })
 }

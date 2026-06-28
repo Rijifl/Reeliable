@@ -4,16 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**ReelCheck** — a Chrome extension that fact-checks health claims in Instagram Reels in real time. Captions are extracted immediately from the DOM; audio is captured and streamed to Deepgram for ASR. Both feed a Fastify SSE endpoint that runs a 3-stage LLM pipeline (claim extraction → vector retrieval → verdict synthesis) and streams results back to a side panel overlay.
+**Reeliable** — a Chrome extension that fact-checks Instagram Reels in real time using a vision-language model. The extension identifies the active reel, the server downloads it, samples video frames, optionally transcribes the audio, and sends the frames + caption + transcript to a VLM. The model returns a timestamped transcript, notable claims, and visual/textual discrepancies, which are rendered in an in-page overlay and a side panel.
 
 ## Monorepo Structure
 
 pnpm workspace with these packages:
 
 - `extension/` — Chrome MV3 extension (Vite + React)
-- `server/` — Fastify API server (SSE endpoint + LLM pipeline)
-- `corpus/` — Scraping + embedding pipeline (populates Qdrant)
-- `scripts/` — Root-level seed script (`seed.ts`)
+- `server/` — Fastify API server (`POST /v1/analyze-reel` + VLM pipeline)
+- `packages/preview/` — Standalone Vite + React app that renders the UI against mock data (no extension/server needed)
 
 ## Commands
 
@@ -24,79 +23,71 @@ pnpm install
 # Server (hot-reload via tsx watch)
 cd server && pnpm dev
 
-# Extension — watch mode (rebuild on save, then manually refresh in chrome://extensions)
+# Server (production build → dist/, then run)
+cd server && pnpm build && pnpm start
+
+# Extension — watch mode (rebuild on save, then refresh in chrome://extensions)
 cd extension && pnpm dev
 
-# Extension — production build
+# Extension — production build (load extension/dist as an unpacked extension)
 cd extension && pnpm build
 
-# Index full corpus (scrape → chunk → embed → upload to Qdrant)
-cd corpus && npx tsx src/index.ts --all
+# UI preview with mock data
+cd packages/preview && pnpm dev
 
-# Index a single corpus source
-cd corpus && npx tsx src/index.ts pubmed   # or: who, cdc, snopes, fda, cochrane
-
-# Seed from root
-npx tsx scripts/seed.ts
-
-# Test the SSE endpoint manually
-curl -N -X POST http://localhost:3001/v1/check \
+# Test the endpoint manually
+curl -X POST http://localhost:3001/v1/analyze-reel \
   -H "Content-Type: application/json" \
-  -d '{"reelId":"test","text":"Vitamin D cures cancer","source":"caption","creator":"@test"}'
+  -d '{"reelId":"test","creator":"@test","videoUrl":"https://www.instagram.com/reels/DVREZnVILGz/"}'
 ```
 
 ## Infrastructure
 
-- **Qdrant** (Docker): `docker run -p 6333:6333 qdrant/qdrant` — must be running before corpus indexing or server use
 - **Server**: `http://localhost:3001`
-- **Qdrant UI**: `http://localhost:6333`
-- Collection: `medical_facts` · 1536-dim vectors (OpenAI `text-embedding-3-small`) · Cosine distance
+- `yt-dlp` and `ffmpeg` must be on `PATH` (the server shells out to both). The Docker image installs them.
+- No database. Results are cached in-memory by `reelId` (bounded LRU) for the server process lifetime.
 
 ## Server Pipeline (`server/src/`)
 
-`POST /v1/check` is a single SSE endpoint in `check.ts` that chains three stages:
+`POST /v1/analyze-reel` (`analyze-reel.ts`) runs a single pipeline (`video-analyzer.ts`):
 
-1. `claim-extractor.ts` — calls Claude Haiku to extract verifiable health claims from input text; returns `[]` if none found (triggers `no_claims` SSE event)
-2. `retriever.ts` → `embeddings.ts` + `qdrant.ts` — embeds each claim, vector-searches Qdrant for top-3 evidence passages
-3. `verdict-composer.ts` — calls Haiku again with retrieved evidence to produce a grounded verdict (`supported` | `contradicted` | `partially_true` | `unverified`)
+1. `video-processor.ts` — `yt-dlp` downloads the reel; `ffmpeg` extracts up to 15 frames (1 every 2s, capped). For image posts the extension passes CDN `imageUrls` directly, skipping yt-dlp. Audio is extracted with ffmpeg and transcribed via Groq Whisper (`transcription.ts`) when `GROQ_API_KEY` is set.
+2. `vlm.ts` — sends frames + caption + transcript to an **OpenAI-compatible `/chat/completions` vision endpoint** and parses the JSON response into `{ transcript, claims, discrepancies }`. Output is sanitized and capped. Invalid/non-JSON model output degrades to an empty result rather than erroring.
+3. `grounding.ts` — *(optional)* fact-checks each extracted claim against the web via Gemini's Google Search grounding, attaching a `verdict` (supported / contradicted / partially_true / unverified, with source links). Runs only when a Gemini key is available (reuses `VLM_API_KEY` when the VLM is Gemini); failures degrade per-claim.
 
-LLM prompts live in `prompts.ts`. Anthropic client in `anthropic.ts`, OpenAI client (embeddings only) in `embeddings.ts`.
+The VLM provider is configured entirely by env (`VLM_BASE_URL` / `VLM_API_KEY` / `VLM_MODEL`), so it works with Gemini (default), OpenRouter, Groq, or a local Ollama model with no code change. Prompts live in `vlm-prompts.ts`. `ValidationError` (`errors.ts`) maps to HTTP 400; anything else is a 500.
 
 ## Extension Architecture (`extension/src/`)
 
-Five entry points built by Vite (each becomes its own JS bundle):
+Entry points built by Vite (each becomes its own bundle):
 
 | File | Role |
 |---|---|
-| `content.ts` | Injected into Instagram tabs; detects reel changes via MutationObserver, triggers audio capture and API calls |
-| `background.ts` | Service worker; opens side panel on Instagram, manages the offscreen document lifecycle, relays messages between components |
-| `offscreen.ts` | Runs in offscreen document; captures tab audio via Web Audio API, streams to Deepgram WebSocket |
-| `panel.tsx` | React side panel UI; renders verdict cards |
-| `popup.ts` | Extension popup; on/off toggle |
+| `reel-extractor-main.ts` | **MAIN world** script; walks the React fiber tree (`reel-id-extractor.ts`) to read each reel's shortcode, then `window.postMessage`s a `REEL_IDENTITY` to the content script |
+| `content.tsx` | **Isolated world** content script; finds the most-visible reel, builds the analyze request, manages the in-page overlay, and forwards `REEL_DETECTED` / `REEL_PREFETCH` to the background |
+| `background.ts` | Service worker; opens the side panel, calls the server (`api.ts`), caches results (bounded LRU, capped concurrent prefetches), and relays `ANALYSIS_*` messages |
+| `overlay.tsx` | In-page overlay UI (vanilla DOM) anchored to the reel |
+| `panel.tsx` | React side-panel UI; renders transcript / claims / discrepancies |
+| `popup.ts` | Extension popup; on/off toggle (writes `enabled` to `chrome.storage.local`) |
 
-Message flow: `content` ↔ `background` ↔ `offscreen` via `chrome.runtime.sendMessage`. The background service worker also forwards `ASR_SEGMENT` / `TRANSCRIPT_DONE` events back to the content script.
+Message flow: `reel-extractor-main` → (postMessage) → `content` → (`chrome.runtime.sendMessage`) → `background` → server. The background forwards `ANALYSIS_STARTED` / `ANALYSIS_COMPLETE` / `ANALYSIS_ERROR` back to both the content script (overlay) and the side panel.
 
-`api.ts` — makes the actual `POST /v1/check` fetch and parses the SSE stream.
-`prefetch.ts` — caches check results for the next reel to reduce latency.
-`deepgram.ts` — Deepgram WebSocket client used by `offscreen.ts`.
-
-## Corpus Pipeline (`corpus/src/`)
-
-Each scraper extends `BaseScraper` (in `scrapers/base.ts`) with `fetch()` and `parse()` methods. The `index.ts` CLI orchestrates: scrape → `chunker.ts` → `embedder.ts` → `uploader.ts` (to Qdrant).
+`AnalyzeReelRequest` / `AnalyzeReelResponse` are defined in both `extension/src/types.ts` and `server/src/types.ts` (kept in sync manually).
 
 ## Environment Variables
 
 Copy `.env.example` to `.env`:
 
 ```
-ANTHROPIC_API_KEY=   # Claim extraction + verdict synthesis (claude-haiku-4-5)
-OPENAI_API_KEY=      # Embeddings only (text-embedding-3-small)
-DEEPGRAM_API_KEY=    # Streaming ASR
-QDRANT_URL=          # Default: http://localhost:6333
-QDRANT_COLLECTION=   # Default: medical_facts
+VLM_API_KEY=         # Vision model key (default provider: Google Gemini Flash — free tier)
+VLM_BASE_URL=        # Default: https://generativelanguage.googleapis.com/v1beta/openai
+VLM_MODEL=           # Default: gemini-2.5-flash
+GROUNDING_API_KEY=   # Optional — web fact-checking via Gemini Google Search (reuses VLM key when VLM is Gemini)
+GROUNDING_MODEL=     # Default: gemini-2.5-flash
+GROQ_API_KEY=        # Optional — audio transcription via Groq Whisper
+YTDLP_COOKIES_FILE=          # Optional — Netscape cookie file for auth-gated reels
+YTDLP_COOKIES_FROM_BROWSER=  # Optional — read a local browser profile (local dev only)
 PORT=                # Default: 3001
 ```
 
-## Known TODOs in Content Script
-
-`content.ts` has three stub functions that need Instagram DOM implementation: `detectActiveReel()`, `detectNextReel()`, and `extractCreator()` — all currently return `null`/`''`.
+Swap VLM provider by changing the three `VLM_*` vars (see `.env.example` for OpenRouter / Groq / Ollama examples).

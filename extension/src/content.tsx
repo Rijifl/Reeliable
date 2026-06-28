@@ -1,20 +1,28 @@
-import { ReelCheckOverlay } from './overlay'
+import { ReeliableOverlay } from './overlay'
 import { AnalyzeReelRequest, ChromeMessage } from './types'
 
 // Map from a video element's blob src → reel identity from the MAIN world.
 // blob: URLs are unique per video element so they work as a correlation key.
+const MAX_IDENTITIES = 50
 const identityByBlobSrc = new Map<string, { reelId: string; videoUrl: string }>()
 
 // Receive reel identities from the MAIN world fiber-walker script.
 window.addEventListener('message', (event) => {
   if (event.source !== window) return
-  if (event.data?.source !== 'REELCHECK_MAIN' || event.data?.type !== 'REEL_IDENTITY') return
+  if (event.data?.source !== 'REELIABLE_MAIN' || event.data?.type !== 'REEL_IDENTITY') return
 
   const { shortcode, videoUrl, blobSrc } = event.data as {
     shortcode: string; videoUrl: string; blobSrc: string
   }
 
-  if (blobSrc) identityByBlobSrc.set(blobSrc, { reelId: shortcode, videoUrl })
+  if (blobSrc) {
+    identityByBlobSrc.set(blobSrc, { reelId: shortcode, videoUrl })
+    // Bound the map so a long scrolling session can't grow it without limit.
+    if (identityByBlobSrc.size > MAX_IDENTITIES) {
+      const oldest = identityByBlobSrc.keys().next().value
+      if (oldest !== undefined) identityByBlobSrc.delete(oldest)
+    }
+  }
 
   // Prefetch any reel that isn't already the active one
   if (currentReel?.reelId !== shortcode) {
@@ -25,16 +33,22 @@ window.addEventListener('message', (event) => {
   }
 })
 
-const log = (...args: unknown[]) => console.log('[ReelCheck]', ...args)
+const log = (...args: unknown[]) => console.log('[Reeliable]', ...args)
 
 let enabled = true
-let overlay: ReelCheckOverlay | null = null
+let enabledLoaded = false
+let overlay: ReeliableOverlay | null = null
 let activeVideo: HTMLVideoElement | null = null
 let currentReel: { reelId: string; videoUrl: string } | null = null
 let positionCleanup: (() => void) | null = null
 
 chrome.storage.local.get('enabled', ({ enabled: stored }) => {
   enabled = stored ?? true
+  enabledLoaded = true
+  // Start scanning only once the enabled flag is known, so a disabled extension
+  // never fires an analysis (or server cost) on page load.
+  scanForActiveReel()
+  setTimeout(scanForActiveReel, 1200)
 })
 
 function getMostVisibleVideo(): HTMLVideoElement | null {
@@ -211,7 +225,7 @@ function stopPositionTracking() {
 }
 
 function ensureOverlay() {
-  if (!overlay) overlay = new ReelCheckOverlay()
+  if (!overlay) overlay = new ReeliableOverlay()
   return overlay
 }
 
@@ -226,7 +240,7 @@ function hideOverlay() {
 }
 
 function scanForActiveReel() {
-  if (!enabled) return
+  if (!enabledLoaded || !enabled) return
 
   const video = getMostVisibleVideo()
 
@@ -267,7 +281,14 @@ function scanForActiveReel() {
   log('REEL_DETECTED', request.reelId, request.videoUrl)
 }
 
-const observer = new MutationObserver(scanForActiveReel)
+// Debounce: Instagram's feed mutates constantly, and a full scan does
+// querySelectorAll('video') + getBoundingClientRect (forced layout). Running it
+// on every mutation janks scrolling, so coalesce bursts into one scan.
+let scanDebounce: ReturnType<typeof setTimeout> | null = null
+const observer = new MutationObserver(() => {
+  if (scanDebounce) clearTimeout(scanDebounce)
+  scanDebounce = setTimeout(scanForActiveReel, 250)
+})
 observer.observe(document.body, { childList: true, subtree: true })
 
 let lastHref = window.location.href
@@ -281,8 +302,8 @@ const hrefObserver = new MutationObserver(() => {
 })
 hrefObserver.observe(document.body, { childList: true, subtree: true })
 
-scanForActiveReel()
-setTimeout(scanForActiveReel, 1200)
+// Initial scans are kicked off from the chrome.storage.local.get callback above
+// (once `enabled` is known). This recurring scan self-gates on enabledLoaded.
 setInterval(scanForActiveReel, 1500)
 
 setInterval(() => {
@@ -292,7 +313,7 @@ setInterval(() => {
 
   const currentMs = Math.max(0, Math.floor(video.currentTime * 1000))
   overlay?.setTime(currentMs)
-  chrome.runtime.sendMessage({ type: 'VIDEO_TIME', currentMs })
+  chrome.runtime.sendMessage({ type: 'VIDEO_TIME', currentMs }).catch(() => {})
 }, 250)
 
 chrome.runtime.onMessage.addListener((message: ChromeMessage) => {

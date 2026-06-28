@@ -1,3 +1,6 @@
+// Client-side mirror of the server's HTTP contract (server/src/types.ts is the
+// source of truth). Also consumed by packages/preview via the @ext alias.
+// The ChromeMessage types below are extension-internal (not part of the API).
 export interface AnalyzeReelRequest {
   reelId: string;
   creator: string;
@@ -18,6 +21,18 @@ export interface ExtractedClaim {
   reasoning: string;
   authorSources: string[];
   timestampMs: number;
+  verdict?: Verdict;   // populated by the web-search grounding stage (optional)
+}
+
+export interface VerdictSource {
+  title: string;
+  url: string;
+}
+
+export interface Verdict {
+  status: 'supported' | 'contradicted' | 'partially_true' | 'unverified';
+  summary: string;
+  sources: VerdictSource[];
 }
 
 export interface Discrepancy {
@@ -62,6 +77,7 @@ export interface AnalysisStartedMessage {
 export interface AnalysisCompleteMessage {
   type: 'ANALYSIS_COMPLETE';
   reelId: string;
+  creator: string;
   result: AnalyzeReelResponse;
 }
 

@@ -1,59 +1,106 @@
 import crypto from 'crypto'
-import Anthropic from '@anthropic-ai/sdk'
 import { AnalyzeReelResponse, Discrepancy, ExtractedClaim, TranscriptEntry } from './types.js'
 import { ExtractedFrame } from './video-processor.js'
 import { VLM_SYSTEM_PROMPT, buildVlmUserPrompt } from './vlm-prompts.js'
-import { getAnthropic } from './anthropic.js'
 
 type AnalysisBody = Omit<AnalyzeReelResponse, 'reelId'>
 
-export async function analyzeVideo(frames: ExtractedFrame[], creator: string, caption?: string, whisperTranscript?: string): Promise<AnalysisBody> {
-  const content: Anthropic.MessageParam['content'] = []
+// --- Provider config (any OpenAI-compatible /chat/completions vision endpoint) ---
+// Defaults target Google Gemini Flash's free tier. Swap providers with env vars:
+//   OpenRouter:   VLM_BASE_URL=https://openrouter.ai/api/v1     VLM_MODEL=qwen/qwen-2.5-vl-72b-instruct:free
+//   Groq:         VLM_BASE_URL=https://api.groq.com/openai/v1   VLM_MODEL=meta-llama/llama-4-maverick-17b-128e-instruct
+//   Local/Ollama: VLM_BASE_URL=http://localhost:11434/v1        VLM_MODEL=qwen2.5vl   VLM_API_KEY=ollama
+const VLM_BASE_URL = (process.env.VLM_BASE_URL ?? 'https://generativelanguage.googleapis.com/v1beta/openai').replace(/\/+$/, '')
+const VLM_MODEL = process.env.VLM_MODEL ?? 'gemini-2.5-flash'
+const VLM_API_KEY = process.env.VLM_API_KEY ?? ''
+
+// Caps so a long or adversarial reel can't return an unbounded payload / overlay.
+const MAX_TRANSCRIPT = 60
+const MAX_CLAIMS = 3
+const MAX_DISCREPANCIES = 10
+
+type ContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
+interface ChatMessage {
+  role: 'system' | 'user'
+  content: string | ContentPart[]
+}
+
+export async function analyzeVideo(
+  frames: ExtractedFrame[],
+  creator: string,
+  caption?: string,
+  whisperTranscript?: string,
+): Promise<AnalysisBody> {
+  const content: ContentPart[] = []
 
   if (whisperTranscript) {
     content.push({ type: 'text', text: `Audio transcript (from Whisper):\n${whisperTranscript}` })
   }
-
   if (caption) {
     content.push({ type: 'text', text: `Post caption: ${caption}` })
   }
-
   for (const frame of frames) {
     content.push({ type: 'text', text: `[Frame at ${formatMs(frame.timestampMs)}]` })
     content.push({
-      type: 'image',
-      source: { type: 'base64', media_type: 'image/jpeg', data: frame.base64 },
+      type: 'image_url',
+      image_url: { url: `data:image/jpeg;base64,${frame.base64}` },
     })
   }
   content.push({ type: 'text', text: buildVlmUserPrompt(creator) })
 
-  const response = await getAnthropic().messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 4096,
-    system: VLM_SYSTEM_PROMPT,
-    messages: [{ role: 'user', content }],
-  })
-
-  const raw = response.content
-    .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-    .map((block) => block.text)
-    .join('')
+  const raw = await callVlm([
+    { role: 'system', content: VLM_SYSTEM_PROMPT },
+    { role: 'user', content },
+  ])
 
   console.log('\n── VLM raw response ──')
   console.log(raw.slice(0, 1000))
   console.log('──────────────────────\n')
 
-  const cleaned = stripMarkdownCodeFence(raw)
-  const parsed = parseJsonObject(cleaned)
+  const parsed = parseJsonObject(stripMarkdownCodeFence(raw))
   return sanitizeAnalysisBody(parsed)
+}
+
+async function callVlm(messages: ChatMessage[]): Promise<string> {
+  const isLocal = /localhost|127\.0\.0\.1/.test(VLM_BASE_URL)
+  if (!VLM_API_KEY && !isLocal) {
+    throw new Error('VLM_API_KEY is required (set it, or point VLM_BASE_URL at a local model)')
+  }
+
+  const res = await fetch(`${VLM_BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${VLM_API_KEY || 'local'}`,
+    },
+    body: JSON.stringify({
+      model: VLM_MODEL,
+      max_tokens: 4096,
+      temperature: 0,
+      response_format: { type: 'json_object' },
+      messages,
+    }),
+  })
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`VLM request failed: ${res.status} ${res.statusText} ${detail.slice(0, 300)}`)
+  }
+
+  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
+  return data.choices?.[0]?.message?.content ?? ''
 }
 
 function sanitizeAnalysisBody(input: unknown): AnalysisBody {
   const data = asRecord(input)
-  const transcript = sanitizeTranscript(data.transcript)
-  const claims = sanitizeClaims(data.claims)
-  const discrepancies = sanitizeDiscrepancies(data.discrepancies)
-  return { transcript, claims, discrepancies }
+  return {
+    transcript: sanitizeTranscript(data.transcript),
+    claims: sanitizeClaims(data.claims),
+    discrepancies: sanitizeDiscrepancies(data.discrepancies),
+  }
 }
 
 function sanitizeTranscript(value: unknown): TranscriptEntry[] {
@@ -67,6 +114,7 @@ function sanitizeTranscript(value: unknown): TranscriptEntry[] {
       return { text, timestampMs }
     })
     .filter((item): item is TranscriptEntry => item !== null)
+    .slice(0, MAX_TRANSCRIPT)
 }
 
 function sanitizeClaims(value: unknown): ExtractedClaim[] {
@@ -85,6 +133,7 @@ function sanitizeClaims(value: unknown): ExtractedClaim[] {
       return { id, text, reasoning, authorSources, timestampMs }
     })
     .filter((item): item is ExtractedClaim => item !== null)
+    .slice(0, MAX_CLAIMS)
 }
 
 function sanitizeDiscrepancies(value: unknown): Discrepancy[] {
@@ -99,6 +148,7 @@ function sanitizeDiscrepancies(value: unknown): Discrepancy[] {
       return { description, severity, frameTimestampMs }
     })
     .filter((item): item is Discrepancy => item !== null)
+    .slice(0, MAX_DISCREPANCIES)
 }
 
 function toSeverity(value: unknown): Discrepancy['severity'] {
@@ -126,12 +176,14 @@ function parseJsonObject(text: string): unknown {
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
   if (start >= 0 && end > start) {
-    const sliced = text.slice(start, end + 1)
-    const parsed = tryParseJson(sliced)
+    const parsed = tryParseJson(text.slice(start, end + 1))
     if (parsed !== null) return parsed
   }
 
-  throw new Error('VLM response did not contain valid JSON')
+  // Model returned prose / no JSON — degrade to an empty result instead of throwing,
+  // so a valid reel shows the empty state rather than a red "Analysis Error" card.
+  console.warn('   VLM response was not valid JSON; returning empty analysis')
+  return {}
 }
 
 function tryParseJson(text: string): unknown | null {

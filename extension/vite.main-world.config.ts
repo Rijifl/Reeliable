@@ -15,7 +15,7 @@ export default defineConfig({
       output: {
         entryFileNames: '[name].js',
         format: 'iife',
-        name: 'ReelCheckMain',
+        name: 'ReeliableMain',
       },
     },
   },
