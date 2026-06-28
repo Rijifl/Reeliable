@@ -3,6 +3,7 @@
 // OpenAI-compatible endpoint used by vlm.ts does not expose grounding), so it runs
 // only when a Gemini key is available — otherwise claims are returned un-graded.
 import { ExtractedClaim, Verdict, VerdictSource } from './types.js'
+import { sleep } from './vlm.js'
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta'
 const GROUNDING_MODEL = process.env.GROUNDING_MODEL ?? 'gemini-2.5-flash'
@@ -47,18 +48,25 @@ Judge it only against reputable sources (peer-reviewed studies, health agencies 
 {"status":"supported|contradicted|partially_true|unverified","summary":"1-2 plain-language sentences explaining the verdict"}
 Use "unverified" if reputable sources do not clearly address the claim.`
 
-  const res = await fetch(`${GEMINI_BASE}/models/${GROUNDING_MODEL}:generateContent?key=${encodeURIComponent(key)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      tools: [{ google_search: {} }],
-    }),
+  const url = `${GEMINI_BASE}/models/${GROUNDING_MODEL}:generateContent?key=${encodeURIComponent(key)}`
+  const payload = JSON.stringify({
+    contents: [{ parts: [{ text: prompt }] }],
+    tools: [{ google_search: {} }],
   })
 
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`grounding request failed: ${res.status} ${detail.slice(0, 200)}`)
+  let res: Response | undefined
+  for (let attempt = 0; attempt < 3; attempt++) {
+    res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload })
+    if (res.ok) break
+    if ((res.status === 429 || res.status >= 500) && attempt < 2) {
+      await sleep(800 * 2 ** attempt)
+      continue
+    }
+    break
+  }
+  if (!res || !res.ok) {
+    const detail = res ? await res.text().catch(() => '') : 'no response'
+    throw new Error(`grounding request failed: ${res?.status ?? 0} ${detail.slice(0, 200)}`)
   }
 
   const data = (await res.json()) as GeminiResponse

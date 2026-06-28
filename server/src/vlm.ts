@@ -64,34 +64,56 @@ export async function analyzeVideo(
   return sanitizeAnalysisBody(parsed)
 }
 
+const MAX_VLM_RETRIES = 3
+
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 async function callVlm(messages: ChatMessage[]): Promise<string> {
   const isLocal = /localhost|127\.0\.0\.1/.test(VLM_BASE_URL)
   if (!VLM_API_KEY && !isLocal) {
     throw new Error('VLM_API_KEY is required (set it, or point VLM_BASE_URL at a local model)')
   }
 
-  const res = await fetch(`${VLM_BASE_URL}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${VLM_API_KEY || 'local'}`,
-    },
-    body: JSON.stringify({
-      model: VLM_MODEL,
-      max_tokens: 4096,
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      messages,
-    }),
+  const payload = JSON.stringify({
+    model: VLM_MODEL,
+    max_tokens: 4096,
+    temperature: 0,
+    response_format: { type: 'json_object' },
+    messages,
   })
 
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`VLM request failed: ${res.status} ${res.statusText} ${detail.slice(0, 300)}`)
+  let lastStatus = 0
+  let lastDetail = ''
+  for (let attempt = 0; attempt < MAX_VLM_RETRIES; attempt++) {
+    const res = await fetch(`${VLM_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${VLM_API_KEY || 'local'}`,
+      },
+      body: payload,
+    })
+
+    if (res.ok) {
+      const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
+      return data.choices?.[0]?.message?.content ?? ''
+    }
+
+    lastStatus = res.status
+    lastDetail = (await res.text().catch(() => '')).slice(0, 300)
+
+    // Retry transient failures (rate-limit / overload / 5xx) with exponential backoff.
+    if ((res.status === 429 || res.status >= 500) && attempt < MAX_VLM_RETRIES - 1) {
+      console.warn(`   VLM ${res.status}, retrying (attempt ${attempt + 1}/${MAX_VLM_RETRIES})...`)
+      await sleep(800 * 2 ** attempt)
+      continue
+    }
+    break
   }
 
-  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
-  return data.choices?.[0]?.message?.content ?? ''
+  throw new Error(`VLM request failed: ${lastStatus} ${lastDetail}`)
 }
 
 function sanitizeAnalysisBody(input: unknown): AnalysisBody {
