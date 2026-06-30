@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Reeliable** — a Chrome extension that fact-checks Instagram Reels in real time using a vision-language model. The extension identifies the active reel, the server downloads it, samples video frames, optionally transcribes the audio, and sends the frames + caption + transcript to a VLM. The model returns a timestamped transcript, notable claims, and visual/textual discrepancies, which are rendered in an in-page overlay and a side panel.
+**Reeliable** — a Chrome extension that fact-checks Instagram Reels in real time using a vision-language model. The content script captures frames directly from the playing `<video>` in the authenticated tab (via an off-screen canvas) and sends them to the local server — so **no Instagram cookies or server-side download are needed** for video reels. The server runs the frames (+ caption) through a VLM, which returns a timestamped on-screen-text transcript, notable claims, and visual/textual discrepancies; each claim is optionally web-grounded into a verdict. Results render in an in-page overlay and a side panel. (If the canvas is cross-origin-tainted, the server falls back to downloading the reel with yt-dlp + ffmpeg.)
 
 ## Monorepo Structure
 
@@ -51,7 +51,7 @@ curl -X POST http://localhost:3001/v1/analyze-reel \
 
 `POST /v1/analyze-reel` (`analyze-reel.ts`) runs a single pipeline (`video-analyzer.ts`):
 
-1. `video-processor.ts` — `yt-dlp` downloads the reel; `ffmpeg` extracts up to 15 frames (1 every 2s, capped). For image posts the extension passes CDN `imageUrls` directly, skipping yt-dlp. Audio is extracted with ffmpeg and transcribed via Groq Whisper (`transcription.ts`) when `GROQ_API_KEY` is set.
+1. **Frame acquisition** — the **primary** path uses frames captured in the browser and sent in `request.frames` (no download). If `frames` is empty, `video-processor.ts` falls back: `yt-dlp` downloads the reel and `ffmpeg` extracts up to 15 frames (1 every 2s, capped); for image posts the extension passes CDN `imageUrls`, which the server fetches directly. On the fallback path only, audio is extracted with ffmpeg and transcribed via Groq Whisper (`transcription.ts`) when `GROQ_API_KEY` is set.
 2. `vlm.ts` — sends frames + caption + transcript to an **OpenAI-compatible `/chat/completions` vision endpoint** and parses the JSON response into `{ transcript, claims, discrepancies }`. Output is sanitized and capped. Invalid/non-JSON model output degrades to an empty result rather than erroring.
 3. `grounding.ts` — *(optional)* fact-checks each extracted claim against the web via Gemini's Google Search grounding, attaching a `verdict` (supported / contradicted / partially_true / unverified, with source links). Runs only when a Gemini key is available (reuses `VLM_API_KEY` when the VLM is Gemini); failures degrade per-claim.
 
@@ -64,11 +64,11 @@ Entry points built by Vite (each becomes its own bundle):
 | File | Role |
 |---|---|
 | `reel-extractor-main.ts` | **MAIN world** script; walks the React fiber tree (`reel-id-extractor.ts`) to read each reel's shortcode, then `window.postMessage`s a `REEL_IDENTITY` to the content script |
-| `content.tsx` | **Isolated world** content script; finds the most-visible reel, builds the analyze request, manages the in-page overlay, and forwards `REEL_DETECTED` / `REEL_PREFETCH` to the background |
-| `background.ts` | Service worker; opens the side panel, calls the server (`api.ts`), caches results (bounded LRU, capped concurrent prefetches), and relays `ANALYSIS_*` messages |
-| `overlay.tsx` | In-page overlay UI (vanilla DOM) anchored to the reel |
-| `panel.tsx` | React side-panel UI; renders transcript / claims / discrepancies |
-| `popup.ts` | Extension popup; on/off toggle (writes `enabled` to `chrome.storage.local`) |
+| `content.tsx` | **Isolated world** content script; finds the most-visible reel, **captures frames from the `<video>` via canvas**, builds the analyze request, manages the in-page overlay, and forwards `REEL_DETECTED` to the background |
+| `background.ts` | Service worker; opens the side panel, calls the server (`api.ts`), caches results (bounded LRU) with `AbortController` cancellation, and relays `ANALYSIS_*` messages |
+| `overlay.tsx` | In-page overlay UI; reuses the shared `ui.tsx` components in a shadow root, anchored to the reel |
+| `panel.tsx` | React side-panel UI; reuses the shared `ui.tsx` components to render transcript / claims / discrepancies / verdicts |
+| `ui.tsx` | Shared React components + theme used by both the overlay and the side panel |
 
 Message flow: `reel-extractor-main` → (postMessage) → `content` → (`chrome.runtime.sendMessage`) → `background` → server. The background forwards `ANALYSIS_STARTED` / `ANALYSIS_COMPLETE` / `ANALYSIS_ERROR` back to both the content script (overlay) and the side panel.
 
