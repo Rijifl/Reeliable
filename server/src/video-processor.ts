@@ -39,7 +39,7 @@ export async function extractFramesFromVideoUrl(
 
   const intervalSeconds = opts.intervalSeconds ?? 2
   const maxFrames = opts.maxFrames ?? 15
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'reelcheck-frames-'))
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'reeliable-frames-'))
 
   try {
     console.log(`   yt-dlp downloading: ${mediaUrl.slice(0, 80)}`)
@@ -69,10 +69,11 @@ export async function extractFramesFromVideoUrl(
     throw new Error('yt-dlp downloaded no usable media files')
   } catch (err) {
     const message = String(err)
-    if (message.includes('yt-dlp') && message.includes('not found')) {
+    // A missing binary surfaces as `spawn <bin> ENOENT`, not "not found".
+    if (message.includes('yt-dlp') && message.includes('ENOENT')) {
       throw new Error('yt-dlp is required on the server PATH')
     }
-    if (message.includes('ffmpeg') && message.includes('not found')) {
+    if (message.includes('ffmpeg') && message.includes('ENOENT')) {
       throw new Error('ffmpeg is required on the server PATH')
     }
     throw err
@@ -82,10 +83,16 @@ export async function extractFramesFromVideoUrl(
 }
 
 async function downloadMedia(url: string, tempDir: string): Promise<void> {
-  const ytdlpBase = [
-    '--quiet', '--no-warnings',
-    '--cookies-from-browser', 'chrome',
-  ]
+  const ytdlpBase = ['--quiet', '--no-warnings']
+  // A server has no browser profile by default, so don't read browser cookies.
+  // Opt in via env for auth-gated reels:
+  //   YTDLP_COOKIES_FILE=/path/to/cookies.txt        (Netscape format — best for servers)
+  //   YTDLP_COOKIES_FROM_BROWSER=chrome|firefox|edge (only where that profile exists, e.g. local dev)
+  if (process.env.YTDLP_COOKIES_FILE) {
+    ytdlpBase.push('--cookies', process.env.YTDLP_COOKIES_FILE)
+  } else if (process.env.YTDLP_COOKIES_FROM_BROWSER) {
+    ytdlpBase.push('--cookies-from-browser', process.env.YTDLP_COOKIES_FROM_BROWSER)
+  }
 
   try {
     // First attempt: download as video (works for reels/video posts)

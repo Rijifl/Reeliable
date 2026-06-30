@@ -35,11 +35,11 @@ function scanAndPost() {
     // Instagram uses MSE so currentSrc is always a blob: URL.
     const videoUrl = `https://www.instagram.com/reels/${result.shortcode}/`
 
-    console.log(`[ReelCheck MAIN] found reel: ${result.shortcode} (depth ${result.depth})`)
+    console.log(`[Reeliable MAIN] found reel: ${result.shortcode} (depth ${result.depth})`)
 
     window.postMessage(
       {
-        source: 'REELCHECK_MAIN',
+        source: 'REELIABLE_MAIN',
         type: 'REEL_IDENTITY',
         shortcode: result.shortcode,
         mediaId: result.mediaId,

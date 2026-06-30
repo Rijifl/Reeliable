@@ -1,3 +1,6 @@
+// Client-side mirror of the server's HTTP contract (server/src/types.ts is the
+// source of truth). Also consumed by packages/preview via the @ext alias.
+// The ChromeMessage types below are extension-internal (not part of the API).
 export interface AnalyzeReelRequest {
   reelId: string;
   creator: string;
@@ -5,6 +8,12 @@ export interface AnalyzeReelRequest {
   durationMs?: number;
   caption?: string;
   imageUrls?: string[];
+  frames?: InboundFrame[]; // Frames captured in the browser (skips server-side download)
+}
+
+export interface InboundFrame {
+  base64: string;        // JPEG bytes, base64-encoded (no data: prefix)
+  timestampMs: number;
 }
 
 export interface TranscriptEntry {
@@ -18,6 +27,18 @@ export interface ExtractedClaim {
   reasoning: string;
   authorSources: string[];
   timestampMs: number;
+  verdict?: Verdict;   // populated by the web-search grounding stage (optional)
+}
+
+export interface VerdictSource {
+  title: string;
+  url: string;
+}
+
+export interface Verdict {
+  status: 'supported' | 'contradicted' | 'partially_true' | 'unverified';
+  summary: string;
+  sources: VerdictSource[];
 }
 
 export interface Discrepancy {
@@ -35,11 +56,6 @@ export interface AnalyzeReelResponse {
 
 export interface ReelDetectedMessage {
   type: 'REEL_DETECTED';
-  request: AnalyzeReelRequest;
-}
-
-export interface ReelPrefetchMessage {
-  type: 'REEL_PREFETCH';
   request: AnalyzeReelRequest;
 }
 
@@ -62,6 +78,7 @@ export interface AnalysisStartedMessage {
 export interface AnalysisCompleteMessage {
   type: 'ANALYSIS_COMPLETE';
   reelId: string;
+  creator: string;
   result: AnalyzeReelResponse;
 }
 
@@ -71,17 +88,10 @@ export interface AnalysisErrorMessage {
   message: string;
 }
 
-export interface SetEnabledMessage {
-  type: 'SET_ENABLED';
-  enabled: boolean;
-}
-
 export type ChromeMessage =
   | ReelDetectedMessage
-  | ReelPrefetchMessage
   | ReelChangedMessage
   | VideoTimeMessage
   | AnalysisStartedMessage
   | AnalysisCompleteMessage
   | AnalysisErrorMessage
-  | SetEnabledMessage

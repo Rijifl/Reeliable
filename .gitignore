@@ -1,7 +1,4 @@
 node_modules
-CLAUDE.md
-extension/dist
-pnpm-lock.yaml
-.DS_Store
-.env
 dist
+.env
+.DS_Store

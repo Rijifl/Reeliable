@@ -1,40 +1,49 @@
-import { ReelCheckOverlay } from './overlay'
+import { ReeliableOverlay } from './overlay'
 import { AnalyzeReelRequest, ChromeMessage } from './types'
 
 // Map from a video element's blob src → reel identity from the MAIN world.
 // blob: URLs are unique per video element so they work as a correlation key.
+const MAX_IDENTITIES = 50
 const identityByBlobSrc = new Map<string, { reelId: string; videoUrl: string }>()
 
 // Receive reel identities from the MAIN world fiber-walker script.
 window.addEventListener('message', (event) => {
   if (event.source !== window) return
-  if (event.data?.source !== 'REELCHECK_MAIN' || event.data?.type !== 'REEL_IDENTITY') return
+  if (event.data?.source !== 'REELIABLE_MAIN' || event.data?.type !== 'REEL_IDENTITY') return
 
   const { shortcode, videoUrl, blobSrc } = event.data as {
     shortcode: string; videoUrl: string; blobSrc: string
   }
 
-  if (blobSrc) identityByBlobSrc.set(blobSrc, { reelId: shortcode, videoUrl })
-
-  // Prefetch any reel that isn't already the active one
-  if (currentReel?.reelId !== shortcode) {
-    chrome.runtime.sendMessage({
-      type: 'REEL_PREFETCH',
-      request: { reelId: shortcode, creator: '', videoUrl },
-    }).catch(() => {})
+  if (blobSrc) {
+    identityByBlobSrc.set(blobSrc, { reelId: shortcode, videoUrl })
+    // Bound the map so a long scrolling session can't grow it without limit.
+    if (identityByBlobSrc.size > MAX_IDENTITIES) {
+      const oldest = identityByBlobSrc.keys().next().value
+      if (oldest !== undefined) identityByBlobSrc.delete(oldest)
+    }
   }
+
+  // (No prefetch: in-browser frame capture can only analyze the reel that's
+  //  actually on screen, so there's nothing to speculatively prefetch.)
 })
 
-const log = (...args: unknown[]) => console.log('[ReelCheck]', ...args)
+const log = (...args: unknown[]) => console.log('[Reeliable]', ...args)
 
 let enabled = true
-let overlay: ReelCheckOverlay | null = null
+let enabledLoaded = false
+let overlay: ReeliableOverlay | null = null
 let activeVideo: HTMLVideoElement | null = null
 let currentReel: { reelId: string; videoUrl: string } | null = null
 let positionCleanup: (() => void) | null = null
 
 chrome.storage.local.get('enabled', ({ enabled: stored }) => {
   enabled = stored ?? true
+  enabledLoaded = true
+  // Start scanning only once the enabled flag is known, so a disabled extension
+  // never fires an analysis (or server cost) on page load.
+  scanForActiveReel()
+  setTimeout(scanForActiveReel, 1200)
 })
 
 function getMostVisibleVideo(): HTMLVideoElement | null {
@@ -211,7 +220,7 @@ function stopPositionTracking() {
 }
 
 function ensureOverlay() {
-  if (!overlay) overlay = new ReelCheckOverlay()
+  if (!overlay) overlay = new ReeliableOverlay()
   return overlay
 }
 
@@ -225,8 +234,86 @@ function hideOverlay() {
   overlay?.setIdle()
 }
 
+// ── In-browser frame capture ────────────────────────────────────────────────
+// Instead of the server re-downloading the reel with yt-dlp (which needs Instagram
+// cookies), grab frames straight from the <video> playing in this authenticated tab
+// and send them to the server. Falls back to server download if the canvas is tainted.
+const FRAME_COUNT = 8
+const FRAME_INTERVAL_MS = 500
+const FRAME_MAX_WIDTH = 640
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+type FrameResult =
+  | { ok: true; base64: string }
+  | { ok: false; reason: 'not-ready' | 'tainted' | 'no-context' }
+
+function captureFrame(video: HTMLVideoElement): FrameResult {
+  if (video.readyState < 2 || !video.videoWidth) return { ok: false, reason: 'not-ready' }
+  try {
+    const scale = Math.min(1, FRAME_MAX_WIDTH / video.videoWidth)
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(video.videoWidth * scale)
+    canvas.height = Math.round(video.videoHeight * scale)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return { ok: false, reason: 'no-context' }
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    // toDataURL throws SecurityError if the canvas is tainted by cross-origin video.
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.7)
+    return { ok: true, base64: dataUrl.slice(dataUrl.indexOf(',') + 1) }
+  } catch {
+    return { ok: false, reason: 'tainted' }
+  }
+}
+
+async function captureFrames(
+  video: HTMLVideoElement,
+  reelId: string,
+): Promise<{ frames: { base64: string; timestampMs: number }[]; tainted: boolean }> {
+  const frames: { base64: string; timestampMs: number }[] = []
+  const seenTimes = new Set<number>()
+  let tainted = false
+
+  for (let i = 0; i < FRAME_COUNT; i++) {
+    if (currentReel?.reelId !== reelId) break // reel changed mid-capture
+    const r = captureFrame(video)
+    if (r.ok) {
+      const ts = Math.max(0, Math.round((video.currentTime || 0) * 1000))
+      if (!seenTimes.has(ts)) {
+        seenTimes.add(ts)
+        frames.push({ base64: r.base64, timestampMs: ts })
+      }
+    } else if (r.reason === 'tainted') {
+      tainted = true
+      break // canvas is tainted — looping won't help
+    }
+    // 'not-ready' / 'no-context' → wait and retry
+    await sleep(FRAME_INTERVAL_MS)
+  }
+  return { frames, tainted }
+}
+
+async function captureAndAnalyze(video: HTMLVideoElement, request: AnalyzeReelRequest) {
+  const reelId = request.reelId
+  const { frames, tainted } = await captureFrames(video, reelId)
+  if (currentReel?.reelId !== reelId) return // reel changed during capture
+
+  if (frames.length === 0) {
+    log(tainted
+      ? 'in-browser capture blocked (tainted canvas) — falling back to server download'
+      : 'no frames captured — falling back to server download')
+    chrome.runtime.sendMessage({ type: 'REEL_DETECTED', request }).catch(() => {})
+    return
+  }
+
+  log(`captured ${frames.length} frame(s) in-browser — sending for analysis`)
+  chrome.runtime.sendMessage({ type: 'REEL_DETECTED', request: { ...request, frames } }).catch(() => {})
+}
+
 function scanForActiveReel() {
-  if (!enabled) return
+  if (!enabledLoaded || !enabled) return
 
   const video = getMostVisibleVideo()
 
@@ -263,11 +350,24 @@ function scanForActiveReel() {
   const ui = ensureOverlay()
   ui.setProcessing(request.creator)
 
-  chrome.runtime.sendMessage({ type: 'REEL_DETECTED', request }).catch(() => {})
-  log('REEL_DETECTED', request.reelId, request.videoUrl)
+  if (video) {
+    // Capture frames from the video playing in this tab (no server download needed).
+    void captureAndAnalyze(video, request)
+  } else {
+    // Image post: the server fetches the CDN image URLs directly.
+    chrome.runtime.sendMessage({ type: 'REEL_DETECTED', request }).catch(() => {})
+  }
+  log('reel detected', request.reelId)
 }
 
-const observer = new MutationObserver(scanForActiveReel)
+// Debounce: Instagram's feed mutates constantly, and a full scan does
+// querySelectorAll('video') + getBoundingClientRect (forced layout). Running it
+// on every mutation janks scrolling, so coalesce bursts into one scan.
+let scanDebounce: ReturnType<typeof setTimeout> | null = null
+const observer = new MutationObserver(() => {
+  if (scanDebounce) clearTimeout(scanDebounce)
+  scanDebounce = setTimeout(scanForActiveReel, 250)
+})
 observer.observe(document.body, { childList: true, subtree: true })
 
 let lastHref = window.location.href
@@ -281,8 +381,8 @@ const hrefObserver = new MutationObserver(() => {
 })
 hrefObserver.observe(document.body, { childList: true, subtree: true })
 
-scanForActiveReel()
-setTimeout(scanForActiveReel, 1200)
+// Initial scans are kicked off from the chrome.storage.local.get callback above
+// (once `enabled` is known). This recurring scan self-gates on enabledLoaded.
 setInterval(scanForActiveReel, 1500)
 
 setInterval(() => {
@@ -292,25 +392,10 @@ setInterval(() => {
 
   const currentMs = Math.max(0, Math.floor(video.currentTime * 1000))
   overlay?.setTime(currentMs)
-  chrome.runtime.sendMessage({ type: 'VIDEO_TIME', currentMs })
+  chrome.runtime.sendMessage({ type: 'VIDEO_TIME', currentMs }).catch(() => {})
 }, 250)
 
 chrome.runtime.onMessage.addListener((message: ChromeMessage) => {
-  if (message.type === 'SET_ENABLED') {
-    enabled = message.enabled
-    if (!enabled) {
-      if (currentReel) chrome.runtime.sendMessage({ type: 'REEL_CHANGED', reelId: currentReel.reelId })
-      currentReel = null
-      activeVideo = null
-      stopPositionTracking()
-      overlay?.destroy()
-      overlay = null
-      return
-    }
-    scanForActiveReel()
-    return
-  }
-
   if (!currentReel) return
 
   if (message.type === 'ANALYSIS_STARTED' && message.reelId === currentReel.reelId) {

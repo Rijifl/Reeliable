@@ -7,7 +7,8 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import { analyzeReelRoute } from './analyze-reel.js'
 
-const server = Fastify({ logger: true })
+// Raised body limit: the extension can POST browser-captured frames (base64 JPEGs).
+const server = Fastify({ logger: true, bodyLimit: 25 * 1024 * 1024 })
 
 server.register(cors, { origin: true })
 server.register(analyzeReelRoute)

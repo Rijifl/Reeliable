@@ -2,10 +2,12 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-RUN apk add --no-cache ffmpeg
+# ffmpeg extracts frames + audio; yt-dlp downloads the reel (pulls in python3)
+RUN apk add --no-cache ffmpeg yt-dlp
 
 COPY package*.json ./
-RUN npm ci --only=production
+# No package-lock in this pnpm workspace, so use install (not ci) for prod deps
+RUN npm install --omit=dev
 
 COPY dist ./dist
 

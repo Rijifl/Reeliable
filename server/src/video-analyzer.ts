@@ -1,27 +1,45 @@
 import { AnalyzeReelRequest, AnalyzeReelResponse } from './types.js'
-import { analyzeVideo } from './openrouter.js'
-import { extractFramesFromVideoUrl } from './video-processor.js'
+import { analyzeVideo } from './vlm.js'
+import { extractFramesFromVideoUrl, ExtractedFrame } from './video-processor.js'
+import { groundClaims, groundingEnabled } from './grounding.js'
+import { ValidationError } from './errors.js'
 
 export async function analyzeReel(request: AnalyzeReelRequest): Promise<AnalyzeReelResponse> {
   validateRequest(request)
 
   console.log(`\n── analyzeReel: ${request.reelId} ──`)
-  console.log(`   videoUrl: ${request.videoUrl.slice(0, 80)}...`)
 
-  const { frames, whisperTranscript } = await extractFramesFromVideoUrl(
-    request.videoUrl,
-    { intervalSeconds: 2, maxFrames: 15 },
-    request.imageUrls,
-  )
+  let frames: ExtractedFrame[]
+  let whisperTranscript: string | undefined
 
-  console.log(`   frames extracted: ${frames.length}`)
-  if (whisperTranscript) console.log(`   whisper transcript length: ${whisperTranscript.length} chars`)
+  if (request.frames && request.frames.length > 0) {
+    // Frames captured in the browser (authenticated tab) — no server-side download,
+    // so no yt-dlp and no Instagram cookies are required.
+    frames = request.frames
+    console.log(`   using ${frames.length} browser-captured frame(s) — no download`)
+  } else {
+    console.log(`   videoUrl: ${request.videoUrl.slice(0, 80)}...`)
+    const extracted = await extractFramesFromVideoUrl(
+      request.videoUrl,
+      { intervalSeconds: 2, maxFrames: 15 },
+      request.imageUrls,
+    )
+    frames = extracted.frames
+    whisperTranscript = extracted.whisperTranscript
+    console.log(`   frames extracted: ${frames.length}`)
+    if (whisperTranscript) console.log(`   whisper transcript length: ${whisperTranscript.length} chars`)
+  }
 
   if (frames.length === 0) {
-    throw new Error('No frames extracted from video URL')
+    throw new Error('No frames available to analyze')
   }
 
   const body = await analyzeVideo(frames, request.creator, request.caption, whisperTranscript)
+
+  if (groundingEnabled() && body.claims.length > 0) {
+    console.log(`   grounding ${body.claims.length} claim(s) via Google Search...`)
+    await groundClaims(body.claims)
+  }
 
   console.log(`   transcript lines: ${body.transcript.length}`)
   console.log(`   claims: ${body.claims.length}`)
@@ -37,18 +55,16 @@ export async function analyzeReel(request: AnalyzeReelRequest): Promise<AnalyzeR
 }
 
 function validateRequest(request: AnalyzeReelRequest) {
-  if (!request.reelId) {
-    throw new Error('reelId is required')
-  }
-  if (!request.videoUrl) {
-    throw new Error('videoUrl is required')
-  }
+  if (!request.reelId) throw new ValidationError('reelId is required')
+  if (!request.videoUrl) throw new ValidationError('videoUrl is required')
+
+  let url: URL
   try {
-    const url = new URL(request.videoUrl)
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      throw new Error('videoUrl must be http/https')
-    }
+    url = new URL(request.videoUrl)
   } catch {
-    throw new Error('videoUrl must be a valid URL')
+    throw new ValidationError('videoUrl must be a valid URL')
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new ValidationError('videoUrl must be http/https')
   }
 }

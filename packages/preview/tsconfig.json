@@ -13,5 +13,5 @@
       "@ext/*": ["../../extension/src/*"]
     }
   },
-  "include": ["src", "../../extension/src/overlay", "../../extension/src/types.ts"]
+  "include": ["src"]
 }
