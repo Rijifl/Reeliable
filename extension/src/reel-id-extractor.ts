@@ -107,7 +107,7 @@ export function deepSearch(
 export function walkFiberTree(videoEl: HTMLVideoElement): WalkResult | null {
   let fiber = getFiber(videoEl)
   if (!fiber) {
-    console.warn('[ReelIdExtractor] No fiber found on video element')
+    console.warn('[Reeliable] No fiber found on video element')
     return null
   }
 
@@ -145,14 +145,6 @@ export function walkFiberTree(videoEl: HTMLVideoElement): WalkResult | null {
         hookNode = hookNode.next
         hookCount++
       }
-
-      // Per-depth diagnostic: log what keys were present so we can spot
-      // when Instagram renames or moves props.
-      const propKeys = fiber.memoizedProps ? Object.keys(fiber.memoizedProps) : []
-      console.debug(
-        `[ReelIdExtractor] depth ${depth} (${name || 'anonymous'}) props: [${propKeys.join(', ')}]`,
-        { foundShortcode: result.shortcode, foundMediaId: result.mediaId },
-      )
     } else {
       result = deepSearch(fiber.memoizedProps, 2)
     }
@@ -162,7 +154,7 @@ export function walkFiberTree(videoEl: HTMLVideoElement): WalkResult | null {
 
     if (bestShortcode && bestMediaId) {
       console.log(
-        `[ReelIdExtractor] walkFiberTree: MATCH at depth ${depth} (${name || 'anonymous'})`,
+        `[Reeliable] walkFiberTree: MATCH at depth ${depth} (${name || 'anonymous'})`,
         { shortcode: bestShortcode, mediaId: bestMediaId },
       )
       return { shortcode: bestShortcode, mediaId: bestMediaId, depth }
@@ -172,7 +164,7 @@ export function walkFiberTree(videoEl: HTMLVideoElement): WalkResult | null {
     depth++
   }
 
-  console.warn('[ReelIdExtractor] walkFiberTree: not found within MAX_DEPTH',
+  console.warn('[Reeliable] walkFiberTree: not found within MAX_DEPTH',
     { reachedDepth: depth, bestShortcode, bestMediaId })
   return null
 }

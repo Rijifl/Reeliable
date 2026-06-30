@@ -24,13 +24,8 @@ window.addEventListener('message', (event) => {
     }
   }
 
-  // Prefetch any reel that isn't already the active one
-  if (currentReel?.reelId !== shortcode) {
-    chrome.runtime.sendMessage({
-      type: 'REEL_PREFETCH',
-      request: { reelId: shortcode, creator: '', videoUrl },
-    }).catch(() => {})
-  }
+  // (No prefetch: in-browser frame capture can only analyze the reel that's
+  //  actually on screen, so there's nothing to speculatively prefetch.)
 })
 
 const log = (...args: unknown[]) => console.log('[Reeliable]', ...args)
@@ -239,6 +234,84 @@ function hideOverlay() {
   overlay?.setIdle()
 }
 
+// ── In-browser frame capture ────────────────────────────────────────────────
+// Instead of the server re-downloading the reel with yt-dlp (which needs Instagram
+// cookies), grab frames straight from the <video> playing in this authenticated tab
+// and send them to the server. Falls back to server download if the canvas is tainted.
+const FRAME_COUNT = 8
+const FRAME_INTERVAL_MS = 500
+const FRAME_MAX_WIDTH = 640
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+type FrameResult =
+  | { ok: true; base64: string }
+  | { ok: false; reason: 'not-ready' | 'tainted' | 'no-context' }
+
+function captureFrame(video: HTMLVideoElement): FrameResult {
+  if (video.readyState < 2 || !video.videoWidth) return { ok: false, reason: 'not-ready' }
+  try {
+    const scale = Math.min(1, FRAME_MAX_WIDTH / video.videoWidth)
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(video.videoWidth * scale)
+    canvas.height = Math.round(video.videoHeight * scale)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return { ok: false, reason: 'no-context' }
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    // toDataURL throws SecurityError if the canvas is tainted by cross-origin video.
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.7)
+    return { ok: true, base64: dataUrl.slice(dataUrl.indexOf(',') + 1) }
+  } catch {
+    return { ok: false, reason: 'tainted' }
+  }
+}
+
+async function captureFrames(
+  video: HTMLVideoElement,
+  reelId: string,
+): Promise<{ frames: { base64: string; timestampMs: number }[]; tainted: boolean }> {
+  const frames: { base64: string; timestampMs: number }[] = []
+  const seenTimes = new Set<number>()
+  let tainted = false
+
+  for (let i = 0; i < FRAME_COUNT; i++) {
+    if (currentReel?.reelId !== reelId) break // reel changed mid-capture
+    const r = captureFrame(video)
+    if (r.ok) {
+      const ts = Math.max(0, Math.round((video.currentTime || 0) * 1000))
+      if (!seenTimes.has(ts)) {
+        seenTimes.add(ts)
+        frames.push({ base64: r.base64, timestampMs: ts })
+      }
+    } else if (r.reason === 'tainted') {
+      tainted = true
+      break // canvas is tainted — looping won't help
+    }
+    // 'not-ready' / 'no-context' → wait and retry
+    await sleep(FRAME_INTERVAL_MS)
+  }
+  return { frames, tainted }
+}
+
+async function captureAndAnalyze(video: HTMLVideoElement, request: AnalyzeReelRequest) {
+  const reelId = request.reelId
+  const { frames, tainted } = await captureFrames(video, reelId)
+  if (currentReel?.reelId !== reelId) return // reel changed during capture
+
+  if (frames.length === 0) {
+    log(tainted
+      ? 'in-browser capture blocked (tainted canvas) — falling back to server download'
+      : 'no frames captured — falling back to server download')
+    chrome.runtime.sendMessage({ type: 'REEL_DETECTED', request }).catch(() => {})
+    return
+  }
+
+  log(`captured ${frames.length} frame(s) in-browser — sending for analysis`)
+  chrome.runtime.sendMessage({ type: 'REEL_DETECTED', request: { ...request, frames } }).catch(() => {})
+}
+
 function scanForActiveReel() {
   if (!enabledLoaded || !enabled) return
 
@@ -277,8 +350,14 @@ function scanForActiveReel() {
   const ui = ensureOverlay()
   ui.setProcessing(request.creator)
 
-  chrome.runtime.sendMessage({ type: 'REEL_DETECTED', request }).catch(() => {})
-  log('REEL_DETECTED', request.reelId, request.videoUrl)
+  if (video) {
+    // Capture frames from the video playing in this tab (no server download needed).
+    void captureAndAnalyze(video, request)
+  } else {
+    // Image post: the server fetches the CDN image URLs directly.
+    chrome.runtime.sendMessage({ type: 'REEL_DETECTED', request }).catch(() => {})
+  }
+  log('reel detected', request.reelId)
 }
 
 // Debounce: Instagram's feed mutates constantly, and a full scan does
@@ -317,21 +396,6 @@ setInterval(() => {
 }, 250)
 
 chrome.runtime.onMessage.addListener((message: ChromeMessage) => {
-  if (message.type === 'SET_ENABLED') {
-    enabled = message.enabled
-    if (!enabled) {
-      if (currentReel) chrome.runtime.sendMessage({ type: 'REEL_CHANGED', reelId: currentReel.reelId })
-      currentReel = null
-      activeVideo = null
-      stopPositionTracking()
-      overlay?.destroy()
-      overlay = null
-      return
-    }
-    scanForActiveReel()
-    return
-  }
-
   if (!currentReel) return
 
   if (message.type === 'ANALYSIS_STARTED' && message.reelId === currentReel.reelId) {

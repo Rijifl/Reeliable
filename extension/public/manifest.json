@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Reeliable",
   "version": "0.1.0",
-  "description": "Real-time health & fitness claim fact-checking for Instagram Reels",
+  "description": "Real-time, web-grounded fact-checking for Instagram Reels",
   "permissions": ["activeTab", "scripting", "storage", "sidePanel"],
   "host_permissions": ["https://www.instagram.com/*", "http://localhost:3001/*"],
   "background": {

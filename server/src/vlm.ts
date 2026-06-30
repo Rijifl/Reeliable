@@ -56,10 +56,6 @@ export async function analyzeVideo(
     { role: 'user', content },
   ])
 
-  console.log('\n── VLM raw response ──')
-  console.log(raw.slice(0, 1000))
-  console.log('──────────────────────\n')
-
   const parsed = parseJsonObject(stripMarkdownCodeFence(raw))
   return sanitizeAnalysisBody(parsed)
 }

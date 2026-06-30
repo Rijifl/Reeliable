@@ -1,12 +1,10 @@
 import { analyzeReel } from './api'
-import { AnalyzeReelResponse, ChromeMessage, ReelDetectedMessage, ReelPrefetchMessage } from './types'
+import { AnalyzeReelResponse, ChromeMessage, ReelDetectedMessage } from './types'
 
 const MAX_CACHE = 50
-const MAX_CONCURRENT_PREFETCH = 2
 
 const cache = new Map<string, AnalyzeReelResponse>()
 const activeRequests = new Map<string, AbortController>()
-let activePrefetchCount = 0
 
 function cacheResult(reelId: string, result: AnalyzeReelResponse) {
   cache.set(reelId, result)
@@ -31,12 +29,6 @@ chrome.runtime.onMessage.addListener((message: ChromeMessage, sender, sendRespon
   if (message.type === 'REEL_DETECTED') {
     console.log('[Reeliable bg] REEL_DETECTED received:', message.request.reelId, message.request.videoUrl)
     void handleReelDetected(message, sender.tab?.id)
-    sendResponse({ ok: true })
-    return true
-  }
-
-  if (message.type === 'REEL_PREFETCH') {
-    void handleReelPrefetch(message)
     sendResponse({ ok: true })
     return true
   }
@@ -86,35 +78,6 @@ async function handleReelDetected(message: ReelDetectedMessage, tabId?: number) 
     console.log('[Reeliable bg] ANALYSIS_ERROR:', messageText)
     forward({ type: 'ANALYSIS_ERROR', reelId, message: messageText }, tabId)
   } finally {
-    const active = activeRequests.get(reelId)
-    if (active === controller) activeRequests.delete(reelId)
-  }
-}
-
-async function handleReelPrefetch(message: ReelPrefetchMessage) {
-  const { request } = message
-  const { reelId } = request
-
-  if (cache.has(reelId)) return
-  if (activeRequests.has(reelId)) return
-  // Back-pressure: a fast feed scroll emits a prefetch per reel. Cap how many heavy
-  // server jobs (yt-dlp + ffmpeg + VLM) run at once so the watched reel isn't starved.
-  if (activePrefetchCount >= MAX_CONCURRENT_PREFETCH) return
-
-  activePrefetchCount++
-  const controller = new AbortController()
-  activeRequests.set(reelId, controller)
-
-  try {
-    const result = await analyzeReel(request, controller.signal)
-    if (!controller.signal.aborted) {
-      cacheResult(reelId, result)
-      console.log(`[Reeliable] prefetch cached: ${reelId}`)
-    }
-  } catch {
-    // Silent fail — prefetch errors don't need UI feedback
-  } finally {
-    activePrefetchCount--
     const active = activeRequests.get(reelId)
     if (active === controller) activeRequests.delete(reelId)
   }

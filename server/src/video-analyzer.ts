@@ -1,6 +1,6 @@
 import { AnalyzeReelRequest, AnalyzeReelResponse } from './types.js'
 import { analyzeVideo } from './vlm.js'
-import { extractFramesFromVideoUrl } from './video-processor.js'
+import { extractFramesFromVideoUrl, ExtractedFrame } from './video-processor.js'
 import { groundClaims, groundingEnabled } from './grounding.js'
 import { ValidationError } from './errors.js'
 
@@ -8,19 +8,30 @@ export async function analyzeReel(request: AnalyzeReelRequest): Promise<AnalyzeR
   validateRequest(request)
 
   console.log(`\n── analyzeReel: ${request.reelId} ──`)
-  console.log(`   videoUrl: ${request.videoUrl.slice(0, 80)}...`)
 
-  const { frames, whisperTranscript } = await extractFramesFromVideoUrl(
-    request.videoUrl,
-    { intervalSeconds: 2, maxFrames: 15 },
-    request.imageUrls,
-  )
+  let frames: ExtractedFrame[]
+  let whisperTranscript: string | undefined
 
-  console.log(`   frames extracted: ${frames.length}`)
-  if (whisperTranscript) console.log(`   whisper transcript length: ${whisperTranscript.length} chars`)
+  if (request.frames && request.frames.length > 0) {
+    // Frames captured in the browser (authenticated tab) — no server-side download,
+    // so no yt-dlp and no Instagram cookies are required.
+    frames = request.frames
+    console.log(`   using ${frames.length} browser-captured frame(s) — no download`)
+  } else {
+    console.log(`   videoUrl: ${request.videoUrl.slice(0, 80)}...`)
+    const extracted = await extractFramesFromVideoUrl(
+      request.videoUrl,
+      { intervalSeconds: 2, maxFrames: 15 },
+      request.imageUrls,
+    )
+    frames = extracted.frames
+    whisperTranscript = extracted.whisperTranscript
+    console.log(`   frames extracted: ${frames.length}`)
+    if (whisperTranscript) console.log(`   whisper transcript length: ${whisperTranscript.length} chars`)
+  }
 
   if (frames.length === 0) {
-    throw new Error('No frames extracted from video URL')
+    throw new Error('No frames available to analyze')
   }
 
   const body = await analyzeVideo(frames, request.creator, request.caption, whisperTranscript)

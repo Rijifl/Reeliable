@@ -8,6 +8,12 @@ export interface AnalyzeReelRequest {
   durationMs?: number;
   caption?: string;
   imageUrls?: string[];
+  frames?: InboundFrame[]; // Frames captured in the browser (skips server-side download)
+}
+
+export interface InboundFrame {
+  base64: string;        // JPEG bytes, base64-encoded (no data: prefix)
+  timestampMs: number;
 }
 
 export interface TranscriptEntry {
@@ -53,11 +59,6 @@ export interface ReelDetectedMessage {
   request: AnalyzeReelRequest;
 }
 
-export interface ReelPrefetchMessage {
-  type: 'REEL_PREFETCH';
-  request: AnalyzeReelRequest;
-}
-
 export interface ReelChangedMessage {
   type: 'REEL_CHANGED';
   reelId: string;
@@ -87,17 +88,10 @@ export interface AnalysisErrorMessage {
   message: string;
 }
 
-export interface SetEnabledMessage {
-  type: 'SET_ENABLED';
-  enabled: boolean;
-}
-
 export type ChromeMessage =
   | ReelDetectedMessage
-  | ReelPrefetchMessage
   | ReelChangedMessage
   | VideoTimeMessage
   | AnalysisStartedMessage
   | AnalysisCompleteMessage
   | AnalysisErrorMessage
-  | SetEnabledMessage

@@ -8,6 +8,12 @@ export interface AnalyzeReelRequest {
   durationMs?: number;
   caption?: string;      // Post caption extracted from the page
   imageUrls?: string[];  // Direct CDN image URLs for image-only posts
+  frames?: InboundFrame[]; // Frames captured in the browser (skips server-side download)
+}
+
+export interface InboundFrame {
+  base64: string;        // JPEG bytes, base64-encoded (no data: prefix)
+  timestampMs: number;
 }
 
 export interface TranscriptEntry {
